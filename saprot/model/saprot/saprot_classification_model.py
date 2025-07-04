@@ -19,7 +19,13 @@ class SaprotClassificationModel(SaprotBaseModel):
         super().__init__(task="classification", **kwargs)
         
     def initialize_metrics(self, stage):
-        return {f"{stage}_acc": torchmetrics.Accuracy()}
+        # For newer versions of torchmetrics, need to specify task type
+        if self.num_labels == 2:
+            task = "binary"
+        else:
+            task = "multiclass"
+        
+        return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
 
     def forward(self, inputs, coords=None):
         if coords is not None:
