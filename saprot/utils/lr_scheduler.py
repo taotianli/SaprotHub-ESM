@@ -23,7 +23,7 @@ class ConstantLRScheduler(_LRScheduler):
         """
         
         self.init_lr = init_lr
-        super().__init__(optimizer, last_epoch, verbose)
+        super().__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
     
     def state_dict(self):
         state_dict = {k: v for k, v in self.__dict__.items() if k not in ["optimizer"]}
@@ -78,7 +78,7 @@ class CosineAnnealingLRScheduler(_LRScheduler):
         self.final_lr = final_lr
         self.warmup_steps = warmup_steps
         self.cosine_steps = cosine_steps
-        super(CosineAnnealingLRScheduler, self).__init__(optimizer, last_epoch, verbose)
+        super(CosineAnnealingLRScheduler, self).__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
         
     def state_dict(self):
         state_dict = {k: v for k, v in self.__dict__.items() if k not in ["optimizer"]}
@@ -151,7 +151,7 @@ class Esm2LRScheduler(_LRScheduler):
         self.start_decay_after_n_steps = start_decay_after_n_steps
         self.end_decay_after_n_steps = end_decay_after_n_steps
         self.on_use = on_use
-        super(Esm2LRScheduler, self).__init__(optimizer, last_epoch, verbose)
+        super(Esm2LRScheduler, self).__init__(optimizer, last_epoch=last_epoch, verbose=verbose)
     
     def state_dict(self):
         state_dict = {k: v for k, v in self.__dict__.items() if k not in ["optimizer"]}
