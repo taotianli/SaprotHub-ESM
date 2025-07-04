@@ -35,7 +35,7 @@ dataset:
   # dataset_py_path: saprot/saprot_classification_dataset
   dataloader_kwargs:
     batch_size: 1
-    num_workers: 2
+    num_workers: 0
 
   # train_lmdb: /content/saprot/LMDB/DeepLoc/cls2/foldseek/train
   # valid_lmdb: /content/saprot/LMDB/DeepLoc/cls2/foldseek/valid

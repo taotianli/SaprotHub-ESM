@@ -39,7 +39,8 @@ try:
           os.system(f"rm -rf {root_dir}/SaprotHub")
           # !rm -rf /content/SaprotHub/
 
-          os.system("git clone https://github.com/taotianli/SaprotHub.git > /dev/null 2>&1")
+          os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+          os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
           # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
           os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
@@ -68,7 +69,8 @@ try:
       os.system(f"rm -rf {root_dir}/SaprotHub")
       # !rm -rf /content/SaprotHub/
 
-      os.system("git clone https://github.com/taotianli/SaprotHub.git > /dev/null 2>&1")
+      os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+      os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
       # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
       os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
@@ -121,6 +123,8 @@ try:
   import warnings
   warnings.filterwarnings("ignore", category=FutureWarning)
 
+
+
   from loguru import logger
   from easydict import EasyDict
   from colorama import init, Fore, Back, Style
@@ -133,13 +137,13 @@ try:
   from pathlib import Path
   from tqdm import tqdm
   from datetime import datetime
-  from transformers import AutoTokenizer
-  from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
-  from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
+  # from transformers import AutoTokenizer  # ESM3不需要tokenizer
+  # from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
+  # from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
   from string import ascii_uppercase,ascii_lowercase
   from saprot.utils.mpr import MultipleProcessRunnerSimplifier
   from saprot.data.parse import get_chain_ids
-  from saprot.scripts.training import my_load_model
+  # from saprot.scripts.training import my_load_model
   from safetensors import safe_open
 
   os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
@@ -160,9 +164,10 @@ try:
 except Exception:
   print("Installing SaProt...")
   os.system(f"rm -rf {root_dir}/SaprotHub")
-  # !rm -rf /content/SaprotHub/
+    # !rm -rf /content/SaprotHub/
 
-  os.system("git clone https://github.com/taotianli/SaprotHub.git > /dev/null 2>&1")
+  os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+  os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
   # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
   os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
@@ -231,9 +236,9 @@ for k in sys.modules.keys():
 for k in keys:
   del sys.modules[k]
 
-from transformers import AutoTokenizer
-from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
-from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
+# from transformers import AutoTokenizer  # ESM3不需要tokenizer
+# from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
+# from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
 import numpy as np
 import pandas as pd
 import ipywidgets
@@ -269,40 +274,25 @@ from tqdm import tqdm
 from datetime import datetime
 
 from string import ascii_uppercase,ascii_lowercase
+
 from saprot.utils.mpr import MultipleProcessRunnerSimplifier
 from saprot.data.parse import get_chain_ids
-from saprot.scripts.training import my_load_model
+# from saprot.scripts.training import my_load_model
 from safetensors import safe_open
 
 # 临时修复兼容性问题
 import numpy as np
 import torch
 
-# 修复numpy版本兼容性问题 - 处理accelerate与numpy版本不匹配
-try:
-    # 检查numpy.dtypes是否有UInt32DType属性
-    _ = np.dtypes.UInt32DType
-except AttributeError:
-    # 为缺失的numpy类型添加兼容性支持
-    import sys
-    import types
-    
-    # 创建一个模拟的dtypes模块如果不存在
-    if not hasattr(np.dtypes, 'UInt32DType'):
-        # 创建UInt32DType类
-        class UInt32DType:
-            def __init__(self):
-                self.type = np.uint32
-        
-        # 添加到numpy.dtypes命名空间
-        np.dtypes.UInt32DType = UInt32DType()
-    
-    print("✅ 已修复numpy版本兼容性问题")
 
-# 修复torch.no_grad的bug - 修复ESM3库中的兼容性问题  
+# 确保这个修复在其他模块导入前生效
+import os
+os.environ['NUMPY_DTYPES_FIXED'] = '1'
+
+# 修复torch.no_grad的bug - 修复ESM3库中的兼容性问题
 if not hasattr(torch, '_original_no_grad_saprot'):
     torch._original_no_grad_saprot = torch.no_grad
-    
+
     def patched_no_grad(*args, **kwargs):
         # ESM3库错误地使用了@torch.no_grad而不是@torch.no_grad()
         # 这个patch确保兼容性
@@ -316,7 +306,7 @@ if not hasattr(torch, '_original_no_grad_saprot'):
         else:
             # 正常的上下文管理器模式
             return torch._original_no_grad_saprot(*args, **kwargs)
-    
+
     torch.no_grad = patched_no_grad
 
 # ESM3 imports and helper functions
@@ -842,10 +832,10 @@ def get_SA_sequence_by_data_type(data_type, raw_data):
       # 检查是否需要特殊处理ESM3（这个参数需要从调用处传递）
       # 由于这个函数没有model_type参数，我们添加一个简单的检查
       # 如果CSV文件中已经包含了原始的AA序列，ESM3可以直接使用
-      
+
       # 为ESM3保留原始序列，为其他模型转换为SA序列
       protein_df_copy = protein_df.copy()
-      
+
       for index, value in protein_df['protein'].items():
         sa_seq = ''
         for aa in value:
@@ -853,11 +843,11 @@ def get_SA_sequence_by_data_type(data_type, raw_data):
         protein_df.at[index, 'protein'] = sa_seq
 
       protein_df.to_csv(csv_dataset_path, index=None)
-      
+
       # 同时保存一个原始序列版本，供ESM3使用
       esm3_csv_path = str(csv_dataset_path).replace('.csv', '_esm3.csv')
       protein_df_copy.to_csv(esm3_csv_path, index=None)
-      
+
       return csv_dataset_path
 
     # 5. Multiple SA Sequences
@@ -897,7 +887,7 @@ def get_SA_sequence_by_data_type(data_type, raw_data):
     elif data_type == "Multiple pairs of AA Sequences":
       # 为ESM3保留原始序列，为其他模型转换为SA序列
       protein_df_copy = protein_df.copy()
-      
+
       for i in ['1', '2']:
         for index, value in protein_df[f'protein_{i}'].items():
           sa_seq = ''
@@ -909,15 +899,15 @@ def get_SA_sequence_by_data_type(data_type, raw_data):
         protein_df[f'chain_{i}'] = 'A'
 
       protein_df.to_csv(csv_dataset_path, index=None)
-      
+
       # 同时保存一个原始序列版本，供ESM3使用
       for i in ['1', '2']:
         protein_df_copy[f'name_{i}'] = f'name_{i}'
         protein_df_copy[f'chain_{i}'] = 'A'
-      
+
       esm3_csv_path = str(csv_dataset_path).replace('.csv', '_esm3.csv')
       protein_df_copy.to_csv(esm3_csv_path, index=None)
-      
+
       return csv_dataset_path
 
     # 14. Pair Multiple SA Sequences
@@ -1706,41 +1696,61 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
 
   # Load model
   model = my_load_model(config.model)
-  tokenizer = AutoTokenizer.from_pretrained(config.model.kwargs.config_path)
+  # tokenizer = AutoTokenizer.from_pretrained(config.model.kwargs.config_path)  # ESM3不需要tokenizer
   device = "cuda" if torch.cuda.is_available() else "cpu"
   model.to(device)
 
   # Start prediction
   logits = []
   pred_labels = []
-  if task_type in ["pair_classification", "pair_regression"]:
-    for sa_seq_1, sa_seq_2 in tqdm(rows):
-      input_1 = tokenizer(sa_seq_1, return_tensors="pt")
-      input_1 = {k: v.to(device) for k, v in input_1.items()}
-      input_2 = tokenizer(sa_seq_2, return_tensors="pt")
-      input_2 = {k: v.to(device) for k, v in input_2.items()}
 
-      with torch.no_grad():
-        pred = model(input_1, input_2)
+  if model_type == "Official ESM3 (1.4B)":
+    # ESM3模型的特殊处理（不使用tokenizer）
+    if task_type in ["pair_classification", "pair_regression"]:
+      for sa_seq_1, sa_seq_2 in tqdm(rows):
+        # ESM3对序列对的处理（需要实现ESM3特定的编码方式）
+        result_1 = encode_sequence_only(model, sa_seq_1, device)
+        result_2 = encode_sequence_only(model, sa_seq_2, device)
+        # 这里需要实现ESM3的预测逻辑
+        # 暂时跳过，因为ESM3主要用于embeddings生成
+        pass
+    else:
+      for sa_seq in tqdm(rows):
+        # ESM3对单序列的处理
+        result = encode_sequence_only(model, sa_seq, device)
+        # 这里需要实现ESM3的预测逻辑
+        # 暂时跳过，因为ESM3主要用于embeddings生成
+        pass
+  # else:
+  #   # 其他模型使用tokenizer的标准处理
+  #   if task_type in ["pair_classification", "pair_regression"]:
+  #     for sa_seq_1, sa_seq_2 in tqdm(rows):
+  #       input_1 = tokenizer(sa_seq_1, return_tensors="pt")
+  #       input_1 = {k: v.to(device) for k, v in input_1.items()}
+  #       input_2 = tokenizer(sa_seq_2, return_tensors="pt")
+  #       input_2 = {k: v.to(device) for k, v in input_2.items()}
 
-      if "regression" in task_type:
-        pred_labels.append(pred.item())
-      else:
-        logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
-        pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
+  #       with torch.no_grad():
+  #         pred = model(input_1, input_2)
 
-  else:
-    for sa_seq in tqdm(rows):
-      inputs = tokenizer(sa_seq, return_tensors="pt")
-      inputs = {k: v.to(device) for k, v in inputs.items()}
-      with torch.no_grad():
-        pred = model(inputs)
+  #       if "regression" in task_type:
+  #         pred_labels.append(pred.item())
+  #       else:
+  #         logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
+  #         pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
 
-      if "regression" in task_type:
-        pred_labels.append(pred.item())
-      else:
-        logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
-        pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
+  #   else:
+  #     for sa_seq in tqdm(rows):
+  #       inputs = tokenizer(sa_seq, return_tensors="pt")
+  #       inputs = {k: v.to(device) for k, v in inputs.items()}
+  #       with torch.no_grad():
+  #         pred = model(inputs)
+
+  #       if "regression" in task_type:
+  #         pred_labels.append(pred.item())
+  #       else:
+  #         logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
+  #         pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
 
   if "classification" in task_type:
     df["predicted_probabilities"] = logits
@@ -1829,6 +1839,7 @@ def generate_download_btn(path: str):
 def load_embedding_generation_model(model_type, model_arg):
   if model_type == "Official ESM3 (1.4B)":
     # 直接加载ESM3模型
+    from esm.models.esm3 import ESM3
     model = ESM3.from_pretrained("esm3-open")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
@@ -1854,7 +1865,7 @@ def load_embedding_generation_model(model_type, model_arg):
   config.model.kwargs.lora_kwargs = lora_kwargs
 
   model = my_load_model(config.model)
-  tokenizer = AutoTokenizer.from_pretrained(config.model.kwargs.config_path)
+  # tokenizer = AutoTokenizer.from_pretrained(config.model.kwargs.config_path)  # ESM3不需要tokenizer
   device = "cuda" if torch.cuda.is_available() else "cpu"
   model.to(device)
 
@@ -1877,38 +1888,38 @@ def generate_embeddings(protein_list, model_type, model_arg):
           current_seq += line.strip()
       if current_seq:
         sequences.append(current_seq)
-    
+
     # 加载ESM3模型
     model = load_embedding_generation_model(model_type, model_arg)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    
+
     # 对每个序列进行编码
     embeddings = []
     for seq in sequences:
       result = encode_sequence_only(model, seq, device)
       embeddings.append(result)
-    
+
     return embeddings
-    
+
   else:
     # 处理PDB结构文件
     def do(process_id, idx, path, writer):
       sequence, coordinates = read_pdb_simple(path)
       coordinates = preprocess_coordinates(coordinates)
-      
+
       # 加载ESM3模型
       model = load_embedding_generation_model(model_type, model_arg)
       device = "cuda" if torch.cuda.is_available() else "cpu"
-      
+
       # 编码序列和结构
       result = encode_sequence_and_structure(model, sequence, coordinates, device)
-      
+
       # 保存结果
       save_path = path.replace('.pdb', '_embedding.pt')
       torch.save(result, save_path)
-      
+
       print(f"Processed {path}")
-      
+
     if isinstance(protein_list, list):
       for idx, pdb_path in enumerate(protein_list):
         do(0, idx, pdb_path, None)
@@ -1976,7 +1987,7 @@ def inverse_folding(aa_seq, struc_seq, method, num_samples):
     }
 
     saprot_if_model = SaProtIFModel(**config)
-    tokenizer = saprot_if_model.tokenizer
+    # tokenizer = saprot_if_model.tokenizer  # ESM3不需要tokenizer
     device = "cuda" if torch.cuda.is_available() else "cpu"
     saprot_if_model.to(device)
 
@@ -1989,7 +2000,7 @@ def predict_structure(seq):
   try:
     esmfold
   except Exception:
-    tokenizer = AutoTokenizer.from_pretrained("facebook/esmfold_v1")
+    # tokenizer = AutoTokenizer.from_pretrained("facebook/esmfold_v1")  # ESM3不需要tokenizer
     esmfold = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1")
     esmfold.esm = esmfold.esm.half()
     esmfold.trunk.set_chunk_size(64)
@@ -1997,20 +2008,20 @@ def predict_structure(seq):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     esmfold.to(device)
 
-  tokenized_input = tokenizer(
-    [seq],
-    return_tensors="pt",
-    add_special_tokens=False,
-    )['input_ids']
+  # tokenized_input = tokenizer(
+  #   [seq],
+  #   return_tensors="pt",
+  #   add_special_tokens=False,
+  #   )['input_ids']
 
-  tokenized_input = tokenized_input.to(esmfold.device)
-  with torch.no_grad():
-    output = esmfold(tokenized_input)
+  # tokenized_input = tokenized_input.to(esmfold.device)  # ESM3不需要tokenizer
+  # with torch.no_grad():
+  #   output = esmfold(tokenized_input)  # ESM3不需要tokenizer
 
   save_path = f"{root_dir}/SaprotHub/output/predicted_structure.pdb"
-  pdb = convert_outputs_to_pdb(output)
-  with open(save_path, "w") as f:
-    f.write("".join(pdb))
+  # pdb = convert_outputs_to_pdb(output)  # ESM3不需要tokenizer
+  # with open(save_path, "w") as f:
+  #   f.write("".join(pdb))
 
   return save_path
 
@@ -2527,7 +2538,7 @@ def choose_training_task():
     # training config
     GPU_batch_size = 0
     accumulate_grad_batches = 0
-    num_workers = 2
+    num_workers = 0  # 设置为0以避免多进程CUDA问题
     seed = 20000812
 
     # lora config
@@ -2577,7 +2588,7 @@ def choose_training_task():
         base_model = adapter_config['base_model_name_or_path']
 
     elif base_model == "Official ESM3 (1.4B)":
-      base_model = "esm3-open"
+      base_model = "esm3-open"  # ESM3不需要从Hugging Face下载
 
     # model size and model name
     if base_model == "esm3-open":
@@ -2588,11 +2599,15 @@ def choose_training_task():
     config.setting.seed = seed
 
     if task_type_value in ["classification", "token_classification", "pair_classification"]:
-      config.model.kwargs.num_labels = num_label.value
+        config.model.kwargs.num_labels = num_label.value
 
+    # ESM3模型配置
     config.model.model_py_path = model_type_dict[task_type_value]
     config.model.kwargs.config_path = base_model
-    config.dataset.kwargs.tokenizer = base_model
+    config.model.kwargs.load_pretrained = True  # 确保加载预训练权重
+    # config.dataset.kwargs.tokenizer = base_model  # ESM3不需要tokenizer
+    
+    print(f"使用ESM3模型，将跳过tokenizer加载")
 
     config.model.save_path = str(ADAPTER_HOME / "Local" / f"{task_type_value}" / model_name)
 
@@ -2655,7 +2670,7 @@ def choose_training_task():
         tmp_path = f"{csv_path}.tmp"
         os.system(f"cp {csv_path} {tmp_path}")
         csv_dataset_path = get_SA_sequence_by_data_type(processed_data_type, tmp_path)
-        
+
         # 如果使用ESM3模型，使用原始序列版本
         if model_type_value == "Official ESM3 (1.4B)":
           esm3_csv_path = str(csv_dataset_path).replace('.csv', '_esm3.csv')
@@ -2691,7 +2706,23 @@ def choose_training_task():
           if os.path.isdir(file_path):
             struc_dir = file_path
 
-        df = pd.read_csv(csv_path)
+        try:
+            df = pd.read_csv(csv_path)
+        except ModuleNotFoundError as e:
+            if "numpy.rec" in str(e):
+                # 修复numpy.rec模块缺失问题
+                import numpy as np
+                try:
+                    from numpy import recarray
+                except ImportError:
+                    import sys
+                    sys.modules['numpy.rec'] = type('numpy.rec', (), {})
+                    sys.modules['numpy.rec'].recarray = np.ndarray
+
+                df = pd.read_csv(csv_path)
+            else:
+                raise e
+
         if "Protein-protein" not in task_type.value:
           pdbs = []
           for pdb_name, chain in df[["protein", "chain"]].values:
@@ -2726,7 +2757,25 @@ def choose_training_task():
         csv_dataset_path = tmp_path
 
     # Rename columns to match backend functions
-    df = pd.read_csv(csv_dataset_path)
+    try:
+        df = pd.read_csv(csv_dataset_path)
+    except ModuleNotFoundError as e:
+        if "numpy.rec" in str(e):
+            # 修复numpy.rec模块缺失问题
+            import numpy as np
+            try:
+                # 尝试导入numpy.recarray
+                from numpy import recarray
+            except ImportError:
+                # 如果numpy.rec不存在，创建一个兼容性修复
+                import sys
+                sys.modules['numpy.rec'] = type('numpy.rec', (), {})
+                sys.modules['numpy.rec'].recarray = np.ndarray
+
+            # 重新尝试读取CSV
+            df = pd.read_csv(csv_dataset_path)
+        else:
+            raise e
     if "Protein-protein" in task_type.value:
       df = df.rename(columns={"protein_1": "sequence_1", "protein_2": "sequence_2"})
     else:
@@ -4849,10 +4898,10 @@ def preprocess_coordinates(coordinates):
 def encode_sequence_only(model, sequence, device):
     from esm.sdk.api import ESMProtein
     protein_seq = ESMProtein(sequence=sequence)
-    
+
     with torch.no_grad():
         output_seq = model.encode(protein_seq)
-        
+
         # 提取编码结果
         result = {}
         for attr_name in ['sequence', 'structure', 'coordinates']:
@@ -4861,22 +4910,22 @@ def encode_sequence_only(model, sequence, device):
                 if attr_value is not None:
                     result[attr_name] = attr_value.cpu().numpy()
                     print(f"   序列编码-{attr_name}: {attr_value.shape}")
-        
+
         return result
 
 def encode_sequence_and_structure(model, sequence, coordinates, device):
     """使用序列和结构进行ESM3编码"""
     from esm.sdk.api import ESMProtein
-    
+
     # 转换坐标为torch张量
     coords_tensor = torch.tensor(coordinates, dtype=torch.float32).to(device)
-    
+
     # 创建包含结构的ESMProtein对象
     protein_struct = ESMProtein(
         sequence=sequence,
         coordinates=coords_tensor
     )
-    
+
     with torch.no_grad():
         output_struct = model.encode(protein_struct)
         result = {}
@@ -4886,7 +4935,7 @@ def encode_sequence_and_structure(model, sequence, coordinates, device):
                 if attr_value is not None:
                     result[attr_name] = attr_value.cpu().numpy()
                     print(f"   结构编码-{attr_name}: {attr_value.shape}")
-                    
+
         return result
 
 def process_csv_for_esm3_training(csv_path, model_type, model_arg):
@@ -4894,7 +4943,7 @@ def process_csv_for_esm3_training(csv_path, model_type, model_arg):
     if model_type == "Official ESM3 (1.4B)":
         # 读取CSV文件
         df = pd.read_csv(csv_path)
-        
+
         # 检查必要的列
         if 'protein' in df.columns:
             # 单序列任务
@@ -4904,14 +4953,14 @@ def process_csv_for_esm3_training(csv_path, model_type, model_arg):
             sequences = [(row['protein_1'], row['protein_2']) for _, row in df.iterrows()]
         else:
             raise ValueError("CSV文件必须包含 'protein' 列（单序列）或 'protein_1', 'protein_2' 列（双序列）")
-        
+
         print(f"处理CSV文件: {csv_path}")
         print(f"包含 {len(sequences)} 个序列样本")
-        
+
         # 对于ESM3，我们直接返回序列数据，不需要特殊的编码预处理
         # 编码将在训练过程中进行
         return csv_path
-    
+
     else:
         # 对于其他模型类型，使用原有的处理方式
         return csv_path

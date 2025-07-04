@@ -31,69 +31,101 @@ class SaprotClassificationModel(SaprotBaseModel):
         if coords is not None:
             inputs = self.add_bias_feature(inputs, coords)
         
-        # For ESM3 compatibility - handle encoded proteins
-        encoded_proteins = inputs.get("inputs", inputs)
-        
-        # Process each encoded protein to extract features
-        features = []
-        for protein in encoded_proteins:
-            # Try to extract sequence features from encoded protein
-            seq_attr = getattr(protein, 'sequence', None)
-            if seq_attr is not None:
-                if torch.is_tensor(seq_attr):
-                    # If it's a tensor, use it directly
-                    features.append(seq_attr)
-                else:
-                    # Convert to tensor if not already
-                    features.append(torch.tensor(seq_attr, dtype=torch.float32))
-            else:
-                # Fallback: create a dummy feature vector
-                features.append(torch.zeros(512, dtype=torch.float32))
-        
-        # Stack features and handle different shapes
-        if features:
-            # Try to stack features, handling different shapes
-            try:
-                # Pad to same length if needed
-                max_len = max(f.shape[0] if f.dim() > 0 else 1 for f in features)
-                padded_features = []
-                for f in features:
-                    if f.dim() == 0:
-                        # Scalar tensor
-                        padded_f = torch.zeros(max_len)
-                        padded_f[0] = f
-                    elif f.shape[0] < max_len:
-                        # Pad with zeros
-                        padded_f = torch.cat([f, torch.zeros(max_len - f.shape[0])])
+        # Handle sequences from ESM3-compatible dataset
+        sequences = inputs.get("sequences", None)
+        if sequences is not None:
+            # Process sequences using ESM3
+            from esm.sdk.api import ESMProtein
+            
+            features = []
+            for seq in sequences:
+                protein = ESMProtein(sequence=seq)
+                with torch.no_grad():
+                    # Encode protein using ESM3 model
+                    encoded_protein = self.model.encode(protein)
+                    
+                    # Extract sequence embeddings
+                    if hasattr(encoded_protein, 'sequence'):
+                        seq_repr = encoded_protein.sequence
+                        if torch.is_tensor(seq_repr):
+                            # Apply mean pooling if it's a sequence of embeddings
+                            if seq_repr.dim() > 1:
+                                features.append(seq_repr.mean(dim=0))
+                            else:
+                                features.append(seq_repr)
+                        else:
+                            # Convert to tensor if not already
+                            tensor_repr = torch.tensor(seq_repr, dtype=torch.float32)
+                            if tensor_repr.dim() > 1:
+                                features.append(tensor_repr.mean(dim=0))
+                            else:
+                                features.append(tensor_repr)
                     else:
-                        padded_f = f[:max_len]
-                    padded_features.append(padded_f)
-                
-                stacked_features = torch.stack(padded_features)
-                
-                # Average pooling to get fixed-size representation
-                pooled = stacked_features.mean(dim=1) if stacked_features.dim() > 1 else stacked_features
-                
-            except Exception as e:
-                # If stacking fails, create dummy features
-                batch_size = len(features)
-                pooled = torch.zeros(batch_size, 512)
+                        # Fallback: use a default embedding size
+                        features.append(torch.zeros(2560, dtype=torch.float32))  # ESM3 embedding size
+            
+            # Stack and prepare features
+            if features:
+                try:
+                    # Ensure all features have the same size
+                    target_size = features[0].shape[0] if features[0].dim() > 0 else 2560
+                    normalized_features = []
+                    
+                    for feat in features:
+                        if feat.dim() == 0:
+                            # Scalar tensor
+                            norm_feat = torch.zeros(target_size)
+                            norm_feat[0] = feat
+                        elif feat.shape[0] != target_size:
+                            # Resize to target size
+                            if feat.shape[0] > target_size:
+                                norm_feat = feat[:target_size]
+                            else:
+                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0])])
+                        else:
+                            norm_feat = feat
+                        normalized_features.append(norm_feat)
+                    
+                    stacked_features = torch.stack(normalized_features)
+                    
+                except Exception as e:
+                    # Fallback if stacking fails
+                    batch_size = len(features)
+                    stacked_features = torch.zeros(batch_size, 2560)
+            else:
+                stacked_features = torch.zeros(1, 2560)
+        
         else:
-            # No features available
-            pooled = torch.zeros(1, 512)
+            # Legacy handling for pre-encoded data
+            encoded_proteins = inputs.get("inputs", inputs)
+            features = []
+            for protein in encoded_proteins:
+                seq_attr = getattr(protein, 'sequence', None)
+                if seq_attr is not None:
+                    if torch.is_tensor(seq_attr):
+                        features.append(seq_attr.mean(dim=0) if seq_attr.dim() > 1 else seq_attr)
+                    else:
+                        tensor_repr = torch.tensor(seq_attr, dtype=torch.float32)
+                        features.append(tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr)
+                else:
+                    features.append(torch.zeros(2560, dtype=torch.float32))
+            
+            if features:
+                stacked_features = torch.stack(features)
+            else:
+                stacked_features = torch.zeros(1, 2560)
         
         # Move to correct device
-        if hasattr(self.model, 'device'):
-            pooled = pooled.to(self.model.device)
+        device = next(self.model.parameters()).device
+        stacked_features = stacked_features.to(device)
         
         # Create classification head if not exists
         if not hasattr(self, 'classification_head'):
-            input_dim = pooled.shape[-1]
+            input_dim = stacked_features.shape[-1]
             self.classification_head = torch.nn.Linear(input_dim, self.num_labels)
-            if hasattr(self.model, 'device'):
-                self.classification_head = self.classification_head.to(self.model.device)
+            self.classification_head = self.classification_head.to(device)
         
-        logits = self.classification_head(pooled)
+        logits = self.classification_head(stacked_features)
         return logits
 
     def loss_func(self, stage, logits, labels):

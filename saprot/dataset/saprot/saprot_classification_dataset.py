@@ -31,11 +31,15 @@ class SaprotClassificationDataset(LMDBDataset):
             plddt_threshold: If not None, mask structure tokens with pLDDT < threshold
             **kwargs:
         """
+        # Force num_workers to 0 to avoid multiprocessing CUDA issues
+        if 'dataloader_kwargs' not in kwargs:
+            kwargs['dataloader_kwargs'] = {}
+        kwargs['dataloader_kwargs']['num_workers'] = 0
+        
         super().__init__(**kwargs)
-        # Initialize ESM3 model for encoding
-        self.esm_model = ESM3.from_pretrained("esm3-open")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.esm_model = self.esm_model.to(device)
+        # Don't initialize ESM3 model here to avoid multiprocessing issues
+        # It will be initialized in collate_fn or passed from the model
+        self.esm_model = None
         
         self.max_length = max_length
         self.use_bias_feature = use_bias_feature
@@ -45,6 +49,10 @@ class SaprotClassificationDataset(LMDBDataset):
         self.plddt_threshold = plddt_threshold
 
         self.is_saprot_model = True  # Always true for ESM3
+
+    def set_esm_model(self, esm_model):
+        """Set the ESM3 model for encoding. This should be called from the main process."""
+        self.esm_model = esm_model
 
     def __getitem__(self, index):
         entry = json.loads(self._get(index))
@@ -57,18 +65,13 @@ class SaprotClassificationDataset(LMDBDataset):
         # Apply masking if needed (simplified for ESM3)
         if self.mask_struc_ratio is not None:
             # Simple random masking for compatibility
-            random.seed(self.mask_seed)
+            random.seed(self.mask_seed + index)  # Add index to make it deterministic per sample
             seq_list = list(seq)
             mask_num = int(len(seq_list) * self.mask_struc_ratio)
             mask_indices = random.sample(range(len(seq_list)), mask_num)
             for idx in mask_indices:
                 seq_list[idx] = 'X'  # Use X for masked tokens
             seq = "".join(seq_list)
-        
-        # Create ESMProtein object and encode
-        protein = ESMProtein(sequence=seq)
-        with torch.no_grad():
-            encoded_protein = self.esm_model.encode(protein)
         
         if self.use_bias_feature:
             coords = {k: v[:self.max_length] for k, v in entry['coords'].items()}
@@ -77,21 +80,21 @@ class SaprotClassificationDataset(LMDBDataset):
 
         label = entry["label"] if self.preset_label is None else self.preset_label
 
-        return encoded_protein, label, coords
+        # Return raw sequence instead of encoded protein to avoid multiprocessing issues
+        return seq, label, coords
 
     def __len__(self):
         return int(self._get("length"))
 
     def collate_fn(self, batch):
-        encoded_proteins, label_ids, coords = tuple(zip(*batch))
+        sequences, label_ids, coords = tuple(zip(*batch))
         
         label_ids = torch.tensor(label_ids, dtype=torch.long)
         labels = {"labels": label_ids}
     
-        # Process ESM3 encoded proteins - simplified approach
-        # For now, just pass the encoded proteins directly
-        # The model will handle the extraction of features
-        inputs = {"inputs": encoded_proteins}
+        # For ESM3 compatibility, just return the sequences
+        # The model will handle ESM3 encoding
+        inputs = {"sequences": sequences}
 
         if self.use_bias_feature:
             inputs["coords"] = coords
