@@ -63,12 +63,15 @@ class SaprotBaseModel(AbstractModel):
         super().__init__(**kwargs)
         
         # After all initialization done, lora technique is applied if needed
+        # Temporarily disable LoRA for ESM3 compatibility
         if self.lora_kwargs is not None:
-            # No need to freeze backbone if LoRA is used
-            self.freeze_backbone = False
-            
-            self.lora_kwargs = EasyDict(lora_kwargs)
-            self._init_lora()
+            print("警告: LoRA暂时禁用以兼容ESM3模型。如需使用LoRA，请手动配置适合ESM3架构的target_modules。")
+            self.lora_kwargs = None
+            # # No need to freeze backbone if LoRA is used
+            # self.freeze_backbone = False
+            # 
+            # self.lora_kwargs = EasyDict(lora_kwargs)
+            # self._init_lora()
         
         self.valid_metrics_list = {}
         self.valid_metrics_list['step'] = []
