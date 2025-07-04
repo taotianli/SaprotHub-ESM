@@ -27,7 +27,13 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
 
-    def forward(self, inputs, coords=None):
+    def forward(self, inputs=None, coords=None, sequences=None, **kwargs):
+        # Handle different input formats
+        if inputs is None and sequences is not None:
+            inputs = {"sequences": sequences}
+        elif inputs is None:
+            inputs = kwargs
+        
         if coords is not None:
             inputs = self.add_bias_feature(inputs, coords)
         
