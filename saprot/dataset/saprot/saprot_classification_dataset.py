@@ -5,12 +5,14 @@ import random
 from ..data_interface import register_dataset
 from transformers import AutoTokenizer, EsmTokenizer
 from ..lmdb_dataset import *
+from esm.models.esm3 import ESM3
+from esm.sdk.api import ESMProtein
 
 
 @register_dataset
 class SaprotClassificationDataset(LMDBDataset):
     def __init__(self,
-                 tokenizer: str,
+                 tokenizer: str = None,  # Keep parameter for compatibility but not used
                  use_bias_feature: bool = False,
                  max_length: int = 1024,
                  preset_label: int = None,
@@ -20,7 +22,7 @@ class SaprotClassificationDataset(LMDBDataset):
                  **kwargs):
         """
         Args:
-            tokenizer: Path to tokenizer
+            tokenizer: Path to tokenizer (not used for ESM3, kept for compatibility)
             use_bias_feature: If True, structure information will be used
             max_length: Max length of sequence
             preset_label: If not None, all labels will be set to this value
@@ -30,7 +32,11 @@ class SaprotClassificationDataset(LMDBDataset):
             **kwargs:
         """
         super().__init__(**kwargs)
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        # Initialize ESM3 model for encoding
+        self.esm_model = ESM3.from_pretrained("esm3-open")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.esm_model = self.esm_model.to(device)
+        
         self.max_length = max_length
         self.use_bias_feature = use_bias_feature
         self.preset_label = preset_label
@@ -38,52 +44,31 @@ class SaprotClassificationDataset(LMDBDataset):
         self.mask_seed = mask_seed
         self.plddt_threshold = plddt_threshold
 
-        self.is_saprot_model = 'saprot' in tokenizer.lower() if isinstance(tokenizer, str) else False
+        self.is_saprot_model = True  # Always true for ESM3
 
     def __getitem__(self, index):
         entry = json.loads(self._get(index))
         seq = entry['seq'][:self.max_length-2]
         
-        if self.is_saprot_model:
-            processed_seq = []
-            for aa in seq:
-                processed_seq.append(aa + "#")
-            seq = processed_seq
-
-        seq = " ".join(seq)
+        # Convert sequence to string format for ESM3
+        if isinstance(seq, list):
+            seq = "".join(seq)
         
-        # Mask structure tokens
+        # Apply masking if needed (simplified for ESM3)
         if self.mask_struc_ratio is not None:
-            tokens = self.tokenizer.tokenize(seq)
-            mask_candi = [i for i, t in enumerate(tokens) if t[-1] != "#"]
-            
-            # Randomly shuffle the mask candidates and set seed to ensure mask is consistent
+            # Simple random masking for compatibility
             random.seed(self.mask_seed)
-            random.shuffle(mask_candi)
-            
-            # Mask first n structure tokens
-            mask_num = int(len(mask_candi) * self.mask_struc_ratio)
-            for i in range(mask_num):
-                idx = mask_candi[i]
-                tokens[idx] = tokens[idx][:-1] + "#"
-            
-            seq = "".join(tokens)
-
-
-        # Mask structure tokens with pLDDT < threshold
-        if self.plddt_threshold is not None:
-            plddt = entry["plddt"]
-            tokens = self.tokenizer.tokenize(seq)
-            seq = ""
-            for token, score in zip(tokens, plddt):
-                if score < self.plddt_threshold:
-                    seq += token[:-1] + "#"
-                else:
-                    seq += token
-
-        tokens = self.tokenizer.tokenize(seq)[:self.max_length]
+            seq_list = list(seq)
+            mask_num = int(len(seq_list) * self.mask_struc_ratio)
+            mask_indices = random.sample(range(len(seq_list)), mask_num)
+            for idx in mask_indices:
+                seq_list[idx] = 'X'  # Use X for masked tokens
+            seq = "".join(seq_list)
         
-        seq = " ".join(tokens)
+        # Create ESMProtein object and encode
+        protein = ESMProtein(sequence=seq)
+        with torch.no_grad():
+            encoded_protein = self.esm_model.encode(protein)
         
         if self.use_bias_feature:
             coords = {k: v[:self.max_length] for k, v in entry['coords'].items()}
@@ -92,23 +77,23 @@ class SaprotClassificationDataset(LMDBDataset):
 
         label = entry["label"] if self.preset_label is None else self.preset_label
 
-        return seq, label, coords
+        return encoded_protein, label, coords
 
     def __len__(self):
         return int(self._get("length"))
 
     def collate_fn(self, batch):
-        seqs, label_ids, coords = tuple(zip(*batch))
+        encoded_proteins, label_ids, coords = tuple(zip(*batch))
         
         label_ids = torch.tensor(label_ids, dtype=torch.long)
         labels = {"labels": label_ids}
     
-        encoder_info = self.tokenizer.batch_encode_plus(seqs, return_tensors='pt', padding=True)
-
-        inputs = {"inputs": encoder_info}
+        # Process ESM3 encoded proteins - simplified approach
+        # For now, just pass the encoded proteins directly
+        # The model will handle the extraction of features
+        inputs = {"inputs": encoded_proteins}
 
         if self.use_bias_feature:
             inputs["coords"] = coords
-
 
         return inputs, labels
