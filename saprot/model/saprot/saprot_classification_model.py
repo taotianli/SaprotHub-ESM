@@ -37,6 +37,10 @@ class SaprotClassificationModel(SaprotBaseModel):
         if coords is not None:
             inputs = self.add_bias_feature(inputs, coords)
         
+        # Get device and dtype from model parameters
+        device = next(self.model.parameters()).device
+        model_dtype = next(self.model.parameters()).dtype
+        
         # Handle sequences from ESM3-compatible dataset
         sequences = inputs.get("sequences", None)
         if sequences is not None:
@@ -46,7 +50,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             features = []
             for seq in sequences:
                 protein = ESMProtein(sequence=seq)
-                # Encode protein using ESM3 model - ensure gradients are computed
+                # Encode protein using ESM3 model
                 encoded_protein = self.model.encode(protein)
                 
                 # Extract sequence embeddings
@@ -59,15 +63,15 @@ class SaprotClassificationModel(SaprotBaseModel):
                         else:
                             features.append(seq_repr)
                     else:
-                        # Convert to tensor - ensure it requires gradients
-                        tensor_repr = torch.tensor(seq_repr, dtype=torch.float32, requires_grad=True)
+                        # Convert to tensor with proper device and dtype
+                        tensor_repr = torch.tensor(seq_repr, device=device, dtype=model_dtype)
                         if tensor_repr.dim() > 1:
                             features.append(tensor_repr.mean(dim=0))
                         else:
                             features.append(tensor_repr)
                 else:
-                    # Fallback: use a default embedding size - ensure it requires gradients
-                    features.append(torch.zeros(2560, dtype=torch.float32, requires_grad=True))
+                    # Fallback: use a default embedding size
+                    features.append(torch.zeros(2560, device=device, dtype=model_dtype))
             
             # Stack and prepare features
             if features:
@@ -79,16 +83,19 @@ class SaprotClassificationModel(SaprotBaseModel):
                     for feat in features:
                         if feat.dim() == 0:
                             # Scalar tensor
-                            norm_feat = torch.zeros(target_size, dtype=torch.float32, requires_grad=True)
+                            norm_feat = torch.zeros(target_size, device=device, dtype=model_dtype)
                             norm_feat[0] = feat
                         elif feat.shape[0] != target_size:
                             # Resize to target size
                             if feat.shape[0] > target_size:
                                 norm_feat = feat[:target_size]
                             else:
-                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], dtype=torch.float32, requires_grad=True)])
+                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], device=device, dtype=model_dtype)])
                         else:
                             norm_feat = feat
+                        
+                        # Ensure proper device and dtype
+                        norm_feat = norm_feat.to(device=device, dtype=model_dtype)
                         normalized_features.append(norm_feat)
                     
                     stacked_features = torch.stack(normalized_features)
@@ -96,9 +103,9 @@ class SaprotClassificationModel(SaprotBaseModel):
                 except Exception as e:
                     # Fallback if stacking fails
                     batch_size = len(features)
-                    stacked_features = torch.zeros(batch_size, 2560, dtype=torch.float32, requires_grad=True)
+                    stacked_features = torch.zeros(batch_size, 2560, device=device, dtype=model_dtype)
             else:
-                stacked_features = torch.zeros(1, 2560, dtype=torch.float32, requires_grad=True)
+                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
         
         else:
             # Legacy handling for pre-encoded data
@@ -108,21 +115,21 @@ class SaprotClassificationModel(SaprotBaseModel):
                 seq_attr = getattr(protein, 'sequence', None)
                 if seq_attr is not None:
                     if torch.is_tensor(seq_attr):
-                        features.append(seq_attr.mean(dim=0) if seq_attr.dim() > 1 else seq_attr)
+                        feat = seq_attr.mean(dim=0) if seq_attr.dim() > 1 else seq_attr
+                        features.append(feat.to(device=device, dtype=model_dtype))
                     else:
-                        tensor_repr = torch.tensor(seq_attr, dtype=torch.float32, requires_grad=True)
-                        features.append(tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr)
+                        tensor_repr = torch.tensor(seq_attr, device=device, dtype=model_dtype)
+                        feat = tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr
+                        features.append(feat)
                 else:
-                    features.append(torch.zeros(2560, dtype=torch.float32, requires_grad=True))
+                    features.append(torch.zeros(2560, device=device, dtype=model_dtype))
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                stacked_features = torch.zeros(1, 2560, dtype=torch.float32, requires_grad=True)
+                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
         
-        # Move to correct device and ensure proper dtype
-        device = next(self.model.parameters()).device
-        model_dtype = next(self.model.parameters()).dtype
+        # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
         # Create classification head if not exists
@@ -130,10 +137,10 @@ class SaprotClassificationModel(SaprotBaseModel):
             input_dim = stacked_features.shape[-1]
             self.classification_head = torch.nn.Linear(input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
-            # Register the classification head as a module to ensure proper mixed precision handling
+            # Register the classification head as a module
             self.add_module('classification_head', self.classification_head)
         
-        # Forward pass - let PyTorch Lightning handle mixed precision automatically
+        # Forward pass
         logits = self.classification_head(stacked_features)
         
         return logits
@@ -141,14 +148,15 @@ class SaprotClassificationModel(SaprotBaseModel):
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
         
-        # Compute loss - PyTorch Lightning handles mixed precision automatically
+        # Compute loss
         loss = cross_entropy(logits, label)
         
         # Update metrics - convert logits to predictions for metric calculation
         # Convert to float32 for metric computation to avoid precision issues
-        preds = torch.argmax(logits.float(), dim=-1)
-        for metric in self.metrics[stage].values():
-            metric.update(preds.detach(), label)
+        with torch.no_grad():
+            preds = torch.argmax(logits.float(), dim=-1)
+            for metric in self.metrics[stage].values():
+                metric.update(preds, label)
 
         if stage == "train":
             log_dict = self.get_log_dict("train")
