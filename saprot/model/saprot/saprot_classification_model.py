@@ -140,9 +140,10 @@ class SaprotClassificationModel(SaprotBaseModel):
         loss = cross_entropy(logits, label)
         # print(loss, logits)
 
-        # Update metrics
+        # Update metrics - convert logits to predictions for metric calculation
+        preds = torch.argmax(logits, dim=-1)  # Convert logits to predicted class indices
         for metric in self.metrics[stage].values():
-            metric.update(logits.detach(), label)
+            metric.update(preds.detach(), label)
 
         if stage == "train":
             log_dict = self.get_log_dict("train")
