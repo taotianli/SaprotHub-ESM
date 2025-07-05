@@ -1,6 +1,7 @@
 import torchmetrics
 import torch
 import torch.distributed as dist
+from torch.cuda.amp import autocast
 
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
@@ -61,14 +62,14 @@ class SaprotClassificationModel(SaprotBaseModel):
                                 features.append(seq_repr)
                         else:
                             # Convert to tensor if not already
-                            tensor_repr = torch.tensor(seq_repr, dtype=torch.float32)
+                            tensor_repr = torch.tensor(seq_repr, dtype=torch.float16)
                             if tensor_repr.dim() > 1:
                                 features.append(tensor_repr.mean(dim=0))
                             else:
                                 features.append(tensor_repr)
                     else:
                         # Fallback: use a default embedding size
-                        features.append(torch.zeros(2560, dtype=torch.float32))  # ESM3 embedding size
+                        features.append(torch.zeros(2560, dtype=torch.float16))  # ESM3 embedding size
             
             # Stack and prepare features
             if features:
@@ -80,26 +81,26 @@ class SaprotClassificationModel(SaprotBaseModel):
                     for feat in features:
                         if feat.dim() == 0:
                             # Scalar tensor
-                            norm_feat = torch.zeros(target_size, dtype=torch.float32)
+                            norm_feat = torch.zeros(target_size, dtype=torch.float16)
                             norm_feat[0] = feat
                         elif feat.shape[0] != target_size:
                             # Resize to target size
                             if feat.shape[0] > target_size:
                                 norm_feat = feat[:target_size]
                             else:
-                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], dtype=torch.float32)])
+                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], dtype=torch.float16)])
                         else:
                             norm_feat = feat
-                        normalized_features.append(norm_feat.float())  # Ensure float32
+                        normalized_features.append(norm_feat.half())  # Ensure float16
                     
                     stacked_features = torch.stack(normalized_features)
                     
                 except Exception as e:
                     # Fallback if stacking fails
                     batch_size = len(features)
-                    stacked_features = torch.zeros(batch_size, 2560, dtype=torch.float32)
+                    stacked_features = torch.zeros(batch_size, 2560, dtype=torch.float16)
             else:
-                stacked_features = torch.zeros(1, 2560, dtype=torch.float32)
+                stacked_features = torch.zeros(1, 2560, dtype=torch.float16)
         
         else:
             # Legacy handling for pre-encoded data
@@ -111,15 +112,15 @@ class SaprotClassificationModel(SaprotBaseModel):
                     if torch.is_tensor(seq_attr):
                         features.append(seq_attr.mean(dim=0) if seq_attr.dim() > 1 else seq_attr)
                     else:
-                        tensor_repr = torch.tensor(seq_attr, dtype=torch.float32)
+                        tensor_repr = torch.tensor(seq_attr, dtype=torch.float16)
                         features.append(tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr)
                 else:
-                    features.append(torch.zeros(2560, dtype=torch.float32))
+                    features.append(torch.zeros(2560, dtype=torch.float16))
             
             if features:
-                stacked_features = torch.stack([f.float() for f in features])
+                stacked_features = torch.stack([f.half() for f in features])
             else:
-                stacked_features = torch.zeros(1, 2560, dtype=torch.float32)
+                stacked_features = torch.zeros(1, 2560, dtype=torch.float16)
         
         # Move to correct device and ensure proper dtype
         device = next(self.model.parameters()).device
@@ -132,16 +133,22 @@ class SaprotClassificationModel(SaprotBaseModel):
             self.classification_head = torch.nn.Linear(input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
-        logits = self.classification_head(stacked_features)
+        # Use autocast for mixed precision training
+        with autocast(enabled=torch.cuda.is_available()):
+            logits = self.classification_head(stacked_features)
+        
         return logits
 
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
-        loss = cross_entropy(logits, label)
-        # print(loss, logits)
-
+        
+        # Use autocast for loss computation to ensure numerical stability
+        with autocast(enabled=torch.cuda.is_available()):
+            loss = cross_entropy(logits, label)
+        
         # Update metrics - convert logits to predictions for metric calculation
-        preds = torch.argmax(logits, dim=-1)  # Convert logits to predicted class indices
+        # Convert to float32 for metric computation to avoid precision issues
+        preds = torch.argmax(logits.float(), dim=-1)
         for metric in self.metrics[stage].values():
             metric.update(preds.detach(), label)
 
