@@ -70,19 +70,37 @@ class SaprotClassificationModel(SaprotBaseModel):
                         else:
                             features.append(tensor_repr)
                 else:
-                    # Fallback: use a default embedding size
-                    features.append(torch.zeros(2560, device=device, dtype=model_dtype))
+                    # Fallback: determine the actual embedding size from the model
+                    # Try to get a sample encoding to determine the size
+                    try:
+                        sample_protein = ESMProtein(sequence="A")  # Single amino acid for size detection
+                        sample_encoded = self.model.encode(sample_protein)
+                        if hasattr(sample_encoded, 'sequence') and torch.is_tensor(sample_encoded.sequence):
+                            if sample_encoded.sequence.dim() > 1:
+                                embedding_size = sample_encoded.sequence.shape[-1]
+                            else:
+                                embedding_size = sample_encoded.sequence.shape[0]
+                        else:
+                            embedding_size = 2560  # Default fallback
+                    except:
+                        embedding_size = 2560  # Default fallback
+                    
+                    features.append(torch.zeros(embedding_size, device=device, dtype=model_dtype))
             
             # Stack and prepare features
             if features:
                 try:
-                    # Ensure all features have the same size
-                    target_size = features[0].shape[0] if features[0].dim() > 0 else 2560
+                    # Get the actual feature size from the first feature
+                    if len(features) > 0 and features[0].dim() > 0:
+                        target_size = features[0].shape[0]
+                    else:
+                        target_size = 2560  # Default fallback
+                    
                     normalized_features = []
                     
                     for feat in features:
                         if feat.dim() == 0:
-                            # Scalar tensor
+                            # Scalar tensor - expand to target size
                             norm_feat = torch.zeros(target_size, device=device, dtype=model_dtype)
                             norm_feat[0] = feat
                         elif feat.shape[0] != target_size:
@@ -101,8 +119,9 @@ class SaprotClassificationModel(SaprotBaseModel):
                     stacked_features = torch.stack(normalized_features)
                     
                 except Exception as e:
-                    # Fallback if stacking fails
-                    batch_size = len(features)
+                    print(f"Error in feature processing: {e}")
+                    # Fallback if stacking fails - use default size
+                    batch_size = len(features) if features else 1
                     stacked_features = torch.zeros(batch_size, 2560, device=device, dtype=model_dtype)
             else:
                 stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
@@ -132,10 +151,15 @@ class SaprotClassificationModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # Create classification head if not exists
-        if not hasattr(self, 'classification_head'):
-            input_dim = stacked_features.shape[-1]
-            self.classification_head = torch.nn.Linear(input_dim, self.num_labels)
+        # Get the actual input dimension from the features
+        actual_input_dim = stacked_features.shape[-1]
+        
+        # Create or recreate classification head if needed
+        if not hasattr(self, 'classification_head') or self.classification_head.in_features != actual_input_dim:
+            if hasattr(self, 'classification_head'):
+                print(f"Recreating classification head: old dim {self.classification_head.in_features} -> new dim {actual_input_dim}")
+            
+            self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
             # Register the classification head as a module
             self.add_module('classification_head', self.classification_head)
