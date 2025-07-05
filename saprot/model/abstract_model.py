@@ -154,14 +154,26 @@ class AbstractModel(pl.LightningModule):
         # This ensures that gradient scaler properly tracks inf/nan values
         try:
             super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure)
-        except AssertionError as e:
-            if "No inf checks were recorded for this optimizer" in str(e):
+        except (AssertionError, RuntimeError) as e:
+            error_msg = str(e)
+            if "No inf checks were recorded for this optimizer" in error_msg:
                 # This is a known issue with mixed precision training
                 # Skip this optimization step and continue
                 print(f"Warning: Skipping optimizer step due to mixed precision issue: {e}")
                 return
+            elif "unscale_() has already been called on this optimizer since the last update()" in error_msg:
+                # Reset the scaler state and skip this step
+                print(f"Warning: Resetting gradient scaler due to unscale issue: {e}")
+                # Try to access the scaler through the trainer's precision plugin
+                if hasattr(self.trainer, 'precision_plugin') and hasattr(self.trainer.precision_plugin, 'scaler'):
+                    try:
+                        # Force update the scaler to reset its state
+                        self.trainer.precision_plugin.scaler.update()
+                    except:
+                        pass
+                return
             else:
-                # Re-raise if it's a different assertion error
+                # Re-raise if it's a different error
                 raise e
 
         self.step += 1
