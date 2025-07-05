@@ -296,27 +296,57 @@ class AbstractModel(pl.LightningModule):
             save_info: Other info to save
             save_weights_only: Whether only save model weights
         """
-        dir = os.path.dirname(save_path)
-        os.makedirs(dir, exist_ok=True)
-        
-        state_dict = {} if save_info is None else save_info
-        state_dict["model"] = self.model.state_dict()
-        
-        # Convert model weights to fp32
-        for k, v in state_dict["model"].items():
-            state_dict["model"][k] = v.float()
+        try:
+            dir = os.path.dirname(save_path)
+            os.makedirs(dir, exist_ok=True)
             
-        if not save_weights_only:
-            state_dict["global_step"] = self.step
-            state_dict["epoch"] = self.epoch
-            state_dict["best_value"] = getattr(self, f"best_value", None)
-            state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
+            # Test if directory is writable
+            test_file = os.path.join(dir, '.write_test')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+            except (OSError, IOError) as e:
+                # If the original path is not writable, use a fallback path
+                print(f"Warning: Cannot write to {dir}, using fallback path")
+                fallback_dir = os.path.join(os.getcwd(), 'model_checkpoints')
+                os.makedirs(fallback_dir, exist_ok=True)
+                filename = os.path.basename(save_path)
+                save_path = os.path.join(fallback_dir, filename)
+                print(f"Saving to fallback path: {save_path}")
             
-            # If not using DeepSpeed, save optimizer state
-            if not hasattr(self.trainer.strategy, "deepspeed_engine"):
-                state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
+            state_dict = {} if save_info is None else save_info
+            state_dict["model"] = self.model.state_dict()
+            
+            # Convert model weights to fp32
+            for k, v in state_dict["model"].items():
+                state_dict["model"][k] = v.float()
+                
+            if not save_weights_only:
+                state_dict["global_step"] = self.step
+                state_dict["epoch"] = self.epoch
+                state_dict["best_value"] = getattr(self, f"best_value", None)
+                state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
+                
+                # If not using DeepSpeed, save optimizer state
+                if not hasattr(self.trainer.strategy, "deepspeed_engine"):
+                    state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
 
-        torch.save(state_dict, save_path)
+            torch.save(state_dict, save_path)
+            print(f"Model checkpoint saved to: {save_path}")
+            
+        except Exception as e:
+            print(f"Error saving checkpoint: {e}")
+            # Try to save to current directory as last resort
+            try:
+                fallback_path = os.path.join(os.getcwd(), 'emergency_checkpoint.pt')
+                state_dict = {} if save_info is None else save_info
+                state_dict["model"] = self.model.state_dict()
+                torch.save(state_dict, fallback_path)
+                print(f"Emergency checkpoint saved to: {fallback_path}")
+            except Exception as e2:
+                print(f"Failed to save emergency checkpoint: {e2}")
+                raise e
 
     def check_save_condition(self, now_value: float, mode: str, save_info: dict = None) -> None:
         """

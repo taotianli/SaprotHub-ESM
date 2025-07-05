@@ -16,6 +16,9 @@ class SaprotClassificationModel(SaprotBaseModel):
             **kwargs: other arguments for SaprotBaseModel
         """
         self.num_labels = num_labels
+        # Cache for ESM3 feature dimensions to ensure consistency
+        self._feature_dim_cache = None
+        self._esm3_encoding_cache = {}
         super().__init__(task="classification", **kwargs)
         
     def initialize_metrics(self, stage):
@@ -49,6 +52,12 @@ class SaprotClassificationModel(SaprotBaseModel):
             
             features = []
             for seq in sequences:
+                # Use cached encoding if available
+                if seq in self._esm3_encoding_cache:
+                    cached_feature = self._esm3_encoding_cache[seq]
+                    features.append(cached_feature.to(device=device, dtype=model_dtype))
+                    continue
+                
                 protein = ESMProtein(sequence=seq)
                 # Encode protein using ESM3 model
                 encoded_protein = self.model.encode(protein)
@@ -59,72 +68,67 @@ class SaprotClassificationModel(SaprotBaseModel):
                     if torch.is_tensor(seq_repr):
                         # Apply mean pooling if it's a sequence of embeddings
                         if seq_repr.dim() > 1:
-                            features.append(seq_repr.mean(dim=0))
+                            feature = seq_repr.mean(dim=0)
                         else:
-                            features.append(seq_repr)
+                            feature = seq_repr
                     else:
                         # Convert to tensor with proper device and dtype
                         tensor_repr = torch.tensor(seq_repr, device=device, dtype=model_dtype)
                         if tensor_repr.dim() > 1:
-                            features.append(tensor_repr.mean(dim=0))
+                            feature = tensor_repr.mean(dim=0)
                         else:
-                            features.append(tensor_repr)
+                            feature = tensor_repr
+                    
+                    # Cache the feature (on CPU to save GPU memory)
+                    self._esm3_encoding_cache[seq] = feature.cpu()
+                    features.append(feature.to(device=device, dtype=model_dtype))
                 else:
-                    # Fallback: determine the actual embedding size from the model
-                    # Try to get a sample encoding to determine the size
-                    try:
-                        sample_protein = ESMProtein(sequence="A")  # Single amino acid for size detection
-                        sample_encoded = self.model.encode(sample_protein)
-                        if hasattr(sample_encoded, 'sequence') and torch.is_tensor(sample_encoded.sequence):
-                            if sample_encoded.sequence.dim() > 1:
-                                embedding_size = sample_encoded.sequence.shape[-1]
+                    # Determine embedding size if not cached
+                    if self._feature_dim_cache is None:
+                        try:
+                            sample_protein = ESMProtein(sequence="A")
+                            sample_encoded = self.model.encode(sample_protein)
+                            if hasattr(sample_encoded, 'sequence') and torch.is_tensor(sample_encoded.sequence):
+                                if sample_encoded.sequence.dim() > 1:
+                                    self._feature_dim_cache = sample_encoded.sequence.shape[-1]
+                                else:
+                                    self._feature_dim_cache = sample_encoded.sequence.shape[0]
                             else:
-                                embedding_size = sample_encoded.sequence.shape[0]
-                        else:
-                            embedding_size = 2560  # Default fallback
-                    except:
-                        embedding_size = 2560  # Default fallback
+                                self._feature_dim_cache = 2560
+                        except:
+                            self._feature_dim_cache = 2560
                     
-                    features.append(torch.zeros(embedding_size, device=device, dtype=model_dtype))
+                    feature = torch.zeros(self._feature_dim_cache, device=device, dtype=model_dtype)
+                    features.append(feature)
             
-            # Stack and prepare features
+            # Ensure all features have the same dimension
             if features:
-                try:
-                    # Get the actual feature size from the first feature
-                    if len(features) > 0 and features[0].dim() > 0:
-                        target_size = features[0].shape[0]
-                    else:
-                        target_size = 2560  # Default fallback
-                    
-                    normalized_features = []
-                    
-                    for feat in features:
-                        if feat.dim() == 0:
-                            # Scalar tensor - expand to target size
-                            norm_feat = torch.zeros(target_size, device=device, dtype=model_dtype)
-                            norm_feat[0] = feat
-                        elif feat.shape[0] != target_size:
-                            # Resize to target size
-                            if feat.shape[0] > target_size:
-                                norm_feat = feat[:target_size]
-                            else:
-                                norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], device=device, dtype=model_dtype)])
+                # Use cached dimension or determine from first feature
+                if self._feature_dim_cache is None and len(features) > 0:
+                    self._feature_dim_cache = features[0].shape[0]
+                
+                target_size = self._feature_dim_cache
+                normalized_features = []
+                
+                for feat in features:
+                    if feat.shape[0] != target_size:
+                        # Resize to target size
+                        if feat.shape[0] > target_size:
+                            norm_feat = feat[:target_size]
                         else:
-                            norm_feat = feat
-                        
-                        # Ensure proper device and dtype
-                        norm_feat = norm_feat.to(device=device, dtype=model_dtype)
-                        normalized_features.append(norm_feat)
+                            norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], device=device, dtype=model_dtype)])
+                    else:
+                        norm_feat = feat
                     
-                    stacked_features = torch.stack(normalized_features)
-                    
-                except Exception as e:
-                    print(f"Error in feature processing: {e}")
-                    # Fallback if stacking fails - use default size
-                    batch_size = len(features) if features else 1
-                    stacked_features = torch.zeros(batch_size, 2560, device=device, dtype=model_dtype)
+                    # Ensure proper device and dtype
+                    norm_feat = norm_feat.to(device=device, dtype=model_dtype)
+                    normalized_features.append(norm_feat)
+                
+                stacked_features = torch.stack(normalized_features)
             else:
-                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+                # Use cached dimension or default
+                embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
+                stacked_features = torch.zeros(1, embedding_size, device=device, dtype=model_dtype)
         
         else:
             # Legacy handling for pre-encoded data
@@ -141,12 +145,14 @@ class SaprotClassificationModel(SaprotBaseModel):
                         feat = tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr
                         features.append(feat)
                 else:
-                    features.append(torch.zeros(2560, device=device, dtype=model_dtype))
+                    embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
+                    features.append(torch.zeros(embedding_size, device=device, dtype=model_dtype))
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+                embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
+                stacked_features = torch.zeros(1, embedding_size, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
@@ -154,15 +160,27 @@ class SaprotClassificationModel(SaprotBaseModel):
         # Get the actual input dimension from the features
         actual_input_dim = stacked_features.shape[-1]
         
-        # Create or recreate classification head if needed
-        if not hasattr(self, 'classification_head') or self.classification_head.in_features != actual_input_dim:
-            if hasattr(self, 'classification_head'):
-                print(f"Recreating classification head: old dim {self.classification_head.in_features} -> new dim {actual_input_dim}")
-            
+        # Create classification head only once with consistent dimension
+        if not hasattr(self, 'classification_head'):
             self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
             # Register the classification head as a module
             self.add_module('classification_head', self.classification_head)
+            print(f"Created classification head with input dim: {actual_input_dim}")
+        elif self.classification_head.in_features != actual_input_dim:
+            # This should not happen with proper caching, but add warning
+            print(f"Warning: Feature dimension mismatch! Expected {self.classification_head.in_features}, got {actual_input_dim}")
+            print("This indicates inconsistent ESM3 encoding. Using zero padding/truncation.")
+            
+            # Adjust features to match existing classification head
+            expected_dim = self.classification_head.in_features
+            if actual_input_dim != expected_dim:
+                batch_size = stacked_features.shape[0]
+                if actual_input_dim > expected_dim:
+                    stacked_features = stacked_features[:, :expected_dim]
+                else:
+                    padding = torch.zeros(batch_size, expected_dim - actual_input_dim, device=device, dtype=model_dtype)
+                    stacked_features = torch.cat([stacked_features, padding], dim=1)
         
         # Forward pass
         logits = self.classification_head(stacked_features)
