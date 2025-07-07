@@ -21,11 +21,9 @@ class SaprotClassificationModel(SaprotBaseModel):
         self._esm3_encoding_cache = {}
         super().__init__(task="classification", **kwargs)
         
-        # 预先创建分类头，使用默认维度，稍后会在first forward时调整
-        # 这确保分类头从一开始就在模型参数中
-        default_input_dim = 2560  # ESM3的默认输出维度
-        self.classification_head = torch.nn.Linear(default_input_dim, self.num_labels)
-        print(f"预创建分类头，输入维度: {default_input_dim}, 输出维度: {self.num_labels}")
+        # 不预先创建分类头，而是根据实际token维度动态创建
+        self.classification_head = None
+        print(f"分类头将根据输入token维度动态创建，输出维度: {self.num_labels}")
         
     def initialize_metrics(self, stage):
         # For newer versions of torchmetrics, need to specify task type
@@ -144,34 +142,32 @@ class SaprotClassificationModel(SaprotBaseModel):
             print(f"[模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
             tokens = inputs["tokens"].to(device=device)
             
-            # 直接使用tokens进行嵌入查找
+            # 直接使用token序列作为特征
             try:
-                # 检查模型是否有embed_tokens方法
-                if hasattr(self.model, 'embed_tokens'):
-                    embeddings = self.model.embed_tokens(tokens)
-                    print(f"[模型调试] 使用embed_tokens，嵌入形状: {embeddings.shape}")
-                elif hasattr(self.model, 'embeddings'):
-                    embeddings = self.model.embeddings(tokens)  
-                    print(f"[模型调试] 使用embeddings层，嵌入形状: {embeddings.shape}")
-                elif hasattr(self.model, 'transformer') and hasattr(self.model.transformer, 'embeddings'):
-                    embeddings = self.model.transformer.embeddings(tokens)
-                    print(f"[模型调试] 使用transformer.embeddings，嵌入形状: {embeddings.shape}")
+                # 将tokens转换为浮点数类型
+                tokens_float = tokens.float().to(dtype=model_dtype)
+                
+                if tokens_float.dim() == 2:
+                    batch_size, seq_len = tokens_float.shape
+                    print(f"[模型调试] batch_size: {batch_size}, seq_len: {seq_len}")
+                    
+                    # 直接将token序列flatten作为特征向量
+                    stacked_features = tokens_float.view(batch_size, -1)  # [batch_size, seq_len]
+                    actual_input_dim = stacked_features.shape[1]
+                    print(f"[模型调试] 直接使用token序列，特征维度: {stacked_features.shape}")
+                    
                 else:
-                    print(f"[模型调试] 找不到嵌入层，模型属性: {[attr for attr in dir(self.model) if not attr.startswith('_')][:10]}")
-                    # 回退到零向量
-                    seq_len = tokens.shape[1]
-                    embeddings = torch.zeros(tokens.shape[0], seq_len, 2560, device=device, dtype=model_dtype)
-                
-                # 转换数据类型并应用平均池化
-                embeddings = embeddings.to(dtype=model_dtype)
-                
-                # 应用平均池化：[batch_size, seq_len, hidden_dim] -> [batch_size, hidden_dim]
-                stacked_features = embeddings.mean(dim=1)
-                print(f"[模型调试] tokens池化后特征形状: {stacked_features.shape}")
+                    print(f"[模型调试] ❌ tokens维度不符合预期: {tokens_float.shape}")
+                    # 创建默认特征
+                    batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
+                    stacked_features = torch.zeros(batch_size, 100, device=device, dtype=model_dtype)  # 默认100维
+                    actual_input_dim = 100
                 
             except Exception as e:
                 print(f"[模型调试] tokens处理失败: {str(e)}")
-                stacked_features = torch.zeros(tokens.shape[0], 2560, device=device, dtype=model_dtype)
+                batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
+                stacked_features = torch.zeros(batch_size, 100, device=device, dtype=model_dtype)
+                actual_input_dim = 100
         
         # 优先处理预编码的嵌入
         elif "embeddings" in inputs:
@@ -236,10 +232,20 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # Get the actual input dimension from the features
         actual_input_dim = stacked_features.shape[-1]
-        print(f"[模型调试] 特征维度: {stacked_features.shape}, 分类头输入维度: {self.classification_head.in_features}")
-        
-        # 检查分类头的输入维度是否匹配，如果不匹配则重建
-        if self.classification_head.in_features != actual_input_dim:
+        print(f"[模型调试] 特征维度: {stacked_features.shape}, 实际输入维度: {actual_input_dim}")
+
+        # 动态创建或重建分类头
+        if self.classification_head is None:
+            print(f"[模型调试] 🔧 首次创建分类头: {actual_input_dim} -> {self.num_labels}")
+            self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
+            self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
+            self._feature_dim_cache = actual_input_dim
+            print(f"[模型调试] ✅ 分类头创建完成")
+            
+            # 重新配置优化器以包含新的分类头参数
+            self._reconfigure_optimizer()
+            
+        elif self.classification_head.in_features != actual_input_dim:
             print(f"[模型调试] 🔧 重建分类头: {self.classification_head.in_features} -> {actual_input_dim}")
             self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
@@ -250,7 +256,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             
             # 重新配置优化器以包含新的分类头参数
             self._reconfigure_optimizer()
-        
+
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         

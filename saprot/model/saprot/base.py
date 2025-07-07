@@ -405,24 +405,29 @@ class SaprotBaseModel(AbstractModel):
     
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
-        Rewrite this function to save LoRA parameters
+        Save model checkpoint with proper directory creation
         """
-        
-        # LoRA和adapter已禁用，直接使用父类的保存方法
-        return super().save_checkpoint(save_path, save_info, save_weights_only)
-        
-        # 以下adapter保存代码已注释，因为LoRA已禁用
-        # if not self.lora_kwargs:
-        #     return super().save_checkpoint(save_path, save_info, save_weights_only)
-        # 
-        # else:
-        #     try:
-        #         if hasattr(self.trainer.strategy, "deepspeed_engine"):
-        #             save_path = os.path.dirname(save_path)
-        #     except Exception as e:
-        #         pass
-        #     
-        #     self.model.save_pretrained(save_path)
+        try:
+            # Create directory if it doesn't exist
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"📁 创建保存目录: {dir_path}")
+            
+            # Call parent save_checkpoint method
+            super().save_checkpoint(save_path, save_info, save_weights_only)
+            print(f"💾 模型checkpoint已保存到: {save_path}")
+            
+        except Exception as e:
+            print(f"❌ 保存checkpoint失败: {str(e)}")
+            # Try to save to current directory as fallback
+            try:
+                fallback_path = os.path.join(os.getcwd(), 'model_checkpoint.pt')
+                super().save_checkpoint(fallback_path, save_info, save_weights_only)
+                print(f"💾 fallback checkpoint已保存到: {fallback_path}")
+            except Exception as e2:
+                print(f"❌ fallback保存也失败: {str(e2)}")
+                raise e
     
     def output_test_metrics(self, log_dict):
         # Remove valid_loss from log_dict when the task is classification
