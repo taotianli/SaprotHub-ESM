@@ -121,12 +121,14 @@ class SaprotClassificationModel(SaprotBaseModel):
                         print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
                         dataloader.dataset.set_esm_model(self.model)
 
-    def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, **kwargs):
+    def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, encoded_proteins=None, **kwargs):
         # Handle different input formats
         if inputs is None and sequences is not None:
             inputs = {"sequences": sequences}
         elif inputs is None and embeddings is not None:
             inputs = {"embeddings": embeddings}
+        elif inputs is None and encoded_proteins is not None:
+            inputs = {"encoded_proteins": encoded_proteins}
         elif inputs is None:
             inputs = kwargs
         
@@ -137,11 +139,65 @@ class SaprotClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
+        # 优先处理encoded_proteins
+        if "encoded_proteins" in inputs:
+            print(f"[模型调试] 使用encoded_proteins，数量: {len(inputs['encoded_proteins'])}")
+            encoded_proteins = inputs["encoded_proteins"]
+            
+            # 使用ESM3模型的forward方法处理encoded_proteins
+            features = []
+            for i, encoded_protein in enumerate(encoded_proteins):
+                try:
+                    with torch.no_grad():
+                        # 使用模型的forward方法处理encoded_protein
+                        output = self.model.forward(encoded_protein)
+                        
+                        # 从输出中提取嵌入
+                        if hasattr(output, 'embeddings'):
+                            embedding = output.embeddings
+                        elif hasattr(output, 'last_hidden_state'):
+                            embedding = output.last_hidden_state
+                        elif hasattr(output, 'sequence_embeddings'):
+                            embedding = output.sequence_embeddings
+                        else:
+                            print(f"[模型调试] encoded_protein {i} 无法找到嵌入，使用零向量")
+                            embedding = torch.zeros(2560, device=device, dtype=model_dtype)
+                        
+                        # 确保正确的设备和数据类型
+                        if torch.is_tensor(embedding):
+                            embedding = embedding.to(device=device, dtype=model_dtype)
+                            # 应用平均池化
+                            if embedding.dim() == 3:  # [batch, seq_len, hidden_dim]
+                                if embedding.shape[0] == 1:
+                                    embedding = embedding.squeeze(0)  # [seq_len, hidden_dim]
+                                feature = embedding.mean(dim=0)  # [hidden_dim]
+                            elif embedding.dim() == 2:  # [seq_len, hidden_dim]
+                                feature = embedding.mean(dim=0)  # [hidden_dim]
+                            elif embedding.dim() == 1:  # [hidden_dim]
+                                feature = embedding
+                            else:
+                                feature = embedding.flatten()
+                        else:
+                            feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                        
+                        features.append(feature)
+                        print(f"[模型调试] encoded_protein {i} 处理完成，特征维度: {feature.shape}")
+                        
+                except Exception as e:
+                    print(f"[模型调试] encoded_protein {i} 处理失败: {str(e)}")
+                    feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                    features.append(feature)
+            
+            if features:
+                stacked_features = torch.stack(features)
+            else:
+                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+        
         # 优先处理预编码的嵌入
-        if "embeddings" in inputs:
+        elif "embeddings" in inputs:
             print(f"[模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
             stacked_features = inputs["embeddings"].to(device=device, dtype=model_dtype)
-            
+        
         elif "sequences" in inputs:
             print(f"[模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
             sequences = inputs["sequences"]
@@ -190,7 +246,7 @@ class SaprotClassificationModel(SaprotBaseModel):
                 stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
         
         else:
-            print(f"[模型调试] ❌ 输入中没有找到embeddings或sequences")
+            print(f"[模型调试] ❌ 输入中没有找到encoded_proteins、embeddings或sequences")
             stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
