@@ -381,17 +381,21 @@ class SaprotBaseModel(AbstractModel):
         Rewrite this function to save LoRA parameters
         """
         
-        if not self.lora_kwargs:
-            return super().save_checkpoint(save_path, save_info, save_weights_only)
+        # LoRA和adapter已禁用，直接使用父类的保存方法
+        return super().save_checkpoint(save_path, save_info, save_weights_only)
         
-        else:
-            try:
-                if hasattr(self.trainer.strategy, "deepspeed_engine"):
-                    save_path = os.path.dirname(save_path)
-            except Exception as e:
-                pass
-            
-            self.model.save_pretrained(save_path)
+        # 以下adapter保存代码已注释，因为LoRA已禁用
+        # if not self.lora_kwargs:
+        #     return super().save_checkpoint(save_path, save_info, save_weights_only)
+        # 
+        # else:
+        #     try:
+        #         if hasattr(self.trainer.strategy, "deepspeed_engine"):
+        #             save_path = os.path.dirname(save_path)
+        #     except Exception as e:
+        #         pass
+        #     
+        #     self.model.save_pretrained(save_path)
     
     def output_test_metrics(self, log_dict):
         # Remove valid_loss from log_dict when the task is classification

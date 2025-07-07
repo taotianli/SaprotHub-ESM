@@ -210,7 +210,16 @@ class SaprotClassificationModel(SaprotBaseModel):
 
         return loss
 
+    def on_train_epoch_end(self):
+        """训练epoch结束时的回调"""
+        super().on_train_epoch_end()  # 调用父类方法
+        # 打印分类头权重信息
+        self._print_classification_head_weights("训练")
+
     def on_test_epoch_end(self):
+        # 打印分类头权重信息
+        self._print_classification_head_weights("测试")
+        
         log_dict = self.get_log_dict("test")
         # log_dict["test_loss"] = torch.cat(self.all_gather(self.test_outputs), dim=-1).mean()
         log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
@@ -222,6 +231,9 @@ class SaprotClassificationModel(SaprotBaseModel):
         self.reset_metrics("test")
 
     def on_validation_epoch_end(self):
+        # 打印分类头权重信息
+        self._print_classification_head_weights("验证")
+        
         log_dict = self.get_log_dict("valid")
         # log_dict["valid_loss"] = torch.cat(self.all_gather(self.valid_outputs), dim=-1).mean()
         log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
@@ -233,3 +245,40 @@ class SaprotClassificationModel(SaprotBaseModel):
         self.check_save_condition(log_dict["valid_acc"], mode="max")
 
         self.plot_valid_metrics_curve(log_dict)
+
+    def _print_classification_head_weights(self, stage_name):
+        """打印分类头权重统计信息"""
+        if hasattr(self, 'classification_head') and self.classification_head is not None:
+            weight = self.classification_head.weight
+            bias = self.classification_head.bias
+            
+            print(f"\n=== {stage_name}阶段结束 - 分类头权重统计 (Epoch {self.current_epoch}) ===")
+            print(f"权重矩阵形状: {weight.shape}")
+            print(f"权重统计: min={weight.min().item():.6f}, max={weight.max().item():.6f}, mean={weight.mean().item():.6f}, std={weight.std().item():.6f}")
+            print(f"权重梯度统计: {'有梯度' if weight.grad is not None else '无梯度'}")
+            if weight.grad is not None:
+                print(f"梯度统计: min={weight.grad.min().item():.6f}, max={weight.grad.max().item():.6f}, mean={weight.grad.mean().item():.6f}")
+            
+            if bias is not None:
+                print(f"偏置形状: {bias.shape}")
+                print(f"偏置统计: min={bias.min().item():.6f}, max={bias.max().item():.6f}, mean={bias.mean().item():.6f}")
+                print(f"偏置梯度统计: {'有梯度' if bias.grad is not None else '无梯度'}")
+                if bias.grad is not None:
+                    print(f"偏置梯度统计: min={bias.grad.min().item():.6f}, max={bias.grad.max().item():.6f}, mean={bias.grad.mean().item():.6f}")
+            
+            # 检查权重是否在训练中发生变化
+            if not hasattr(self, '_prev_weights'):
+                self._prev_weights = weight.clone().detach()
+                print("首次记录权重")
+            else:
+                weight_diff = torch.abs(weight - self._prev_weights).mean().item()
+                print(f"权重变化量: {weight_diff:.8f}")
+                if weight_diff < 1e-8:
+                    print("⚠️  警告: 权重几乎没有变化，可能没有在训练!")
+                else:
+                    print("✓ 权重正在更新")
+                self._prev_weights = weight.clone().detach()
+            
+            print("=" * 60 + "\n")
+        else:
+            print(f"\n⚠️  {stage_name}阶段结束 - 分类头尚未创建 (Epoch {self.current_epoch})\n")

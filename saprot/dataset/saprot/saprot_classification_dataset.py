@@ -73,6 +73,34 @@ class SaprotClassificationDataset(LMDBDataset):
                 seq_list[idx] = 'X'  # Use X for masked tokens
             seq = "".join(seq_list)
         
+        # 打印sequence及其ESM3编码token
+        try:
+            if self.esm_model is not None:
+                # 使用ESM3模型编码sequence
+                protein = ESMProtein(sequence=seq)
+                encoded_protein = self.esm_model.encode(protein)
+                
+                # 获取编码token (这里我们获取sequence representation的维度信息)
+                if hasattr(encoded_protein, 'sequence'):
+                    seq_repr = encoded_protein.sequence
+                    if torch.is_tensor(seq_repr):
+                        token_info = f"Token tensor shape: {seq_repr.shape}, dtype: {seq_repr.dtype}"
+                        print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                        print(f"[数据集调试] 索引 {index} - ESM3 编码: {token_info}")
+                        print(f"[数据集调试] 索引 {index} - Token 统计: min={seq_repr.min().item():.4f}, max={seq_repr.max().item():.4f}, mean={seq_repr.mean().item():.4f}")
+                    else:
+                        print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                        print(f"[数据集调试] 索引 {index} - ESM3 编码: 非tensor类型 - {type(seq_repr)}")
+                else:
+                    print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                    print(f"[数据集调试] 索引 {index} - ESM3 编码: 无sequence属性")
+            else:
+                print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                print(f"[数据集调试] 索引 {index} - ESM3 模型未设置，无法显示编码token")
+        except Exception as e:
+            print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+            print(f"[数据集调试] 索引 {index} - ESM3 编码失败: {str(e)}")
+        
         if self.use_bias_feature:
             coords = {k: v[:self.max_length] for k, v in entry['coords'].items()}
         else:

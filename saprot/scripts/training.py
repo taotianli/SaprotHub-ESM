@@ -43,17 +43,18 @@ def finetune(config):
     trainer.fit(model=model, datamodule=data_module)
     # Load best model and test performance
     if model.save_path is not None:
-        if config.model.kwargs.get("lora_kwargs", None):
-            # Load LoRA model
-            if len(getattr(config.model.kwargs.lora_kwargs, "config_list", [])) <= 1:
-                config.model.kwargs.lora_kwargs.num_lora = 1
-                config.model.kwargs.lora_kwargs.config_list = [{"lora_config_path": model.save_path}]
-                
-            model = my_load_model(config.model)
-
-        else:
-            model.load_checkpoint(model.save_path)
-
+        # adapter和LoRA加载逻辑已注释，因为已禁用LoRA
+        # if config.model.kwargs.get("lora_kwargs", None):
+        #     # Load LoRA model
+        #     if len(getattr(config.model.kwargs.lora_kwargs, "config_list", [])) <= 1:
+        #         config.model.kwargs.lora_kwargs.num_lora = 1
+        #         config.model.kwargs.lora_kwargs.config_list = [{"lora_config_path": model.save_path}]
+        #         
+        #     model = my_load_model(config.model)
+        # else:
+        #     model.load_checkpoint(model.save_path)
+        
+        model.load_checkpoint(model.save_path)
         trainer.test(model=model, datamodule=data_module)
 
 
@@ -86,17 +87,18 @@ def run(config):
 
     # Load best model and test performance
     if model.save_path is not None:
-        if config.model.kwargs.get("lora_kwargs", None):
-            # Load LoRA model
-            if len(getattr(config.model.kwargs.lora_kwargs, "config_list", [])) <= 1:
-                config.model.kwargs.lora_kwargs.num_lora = 1
-                config.model.kwargs.lora_kwargs.config_list = [{"lora_config_path": model.save_path}]
-                
-            model = load_model(config.model)
-
-        else:
-            model.load_checkpoint(model.save_path)
-
+        # adapter和LoRA加载逻辑已注释，因为已禁用LoRA
+        # if config.model.kwargs.get("lora_kwargs", None):
+        #     # Load LoRA model
+        #     if len(getattr(config.model.kwargs.lora_kwargs, "config_list", [])) <= 1:
+        #         config.model.kwargs.lora_kwargs.num_lora = 1
+        #         config.model.kwargs.lora_kwargs.config_list = [{"lora_config_path": model.save_path}]
+        #         
+        #     model = load_model(config.model)
+        # else:
+        #     model.load_checkpoint(model.save_path)
+        
+        model.load_checkpoint(model.save_path)
         trainer.test(model=model, datamodule=data_module)
 
 
