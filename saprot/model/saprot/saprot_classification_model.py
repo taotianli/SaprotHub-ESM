@@ -84,11 +84,36 @@ class SaprotClassificationModel(SaprotBaseModel):
                     dataset.set_esm_model(self.model)
                     
             # 另外检查dataloader中的数据集
-            dataloaders = [
-                ('train', getattr(self.trainer, 'train_dataloader', lambda: None)()),
-                ('val', getattr(self.trainer, 'val_dataloaders', lambda: None)()),
-                ('test', getattr(self.trainer, 'test_dataloaders', lambda: None)())
-            ]
+            dataloaders = []
+            
+            # 安全地获取dataloaders
+            if hasattr(self.trainer, 'train_dataloader') and self.trainer.train_dataloader is not None:
+                train_dl = self.trainer.train_dataloader
+                if callable(train_dl):
+                    train_dl = train_dl()
+                dataloaders.append(('train', train_dl))
+                
+            if hasattr(self.trainer, 'val_dataloaders') and self.trainer.val_dataloaders is not None:
+                val_dl = self.trainer.val_dataloaders
+                if callable(val_dl):
+                    val_dl = val_dl()
+                # val_dataloaders可能是列表
+                if isinstance(val_dl, list):
+                    for i, dl in enumerate(val_dl):
+                        dataloaders.append((f'val_{i}', dl))
+                else:
+                    dataloaders.append(('val', val_dl))
+                    
+            if hasattr(self.trainer, 'test_dataloaders') and self.trainer.test_dataloaders is not None:
+                test_dl = self.trainer.test_dataloaders
+                if callable(test_dl):
+                    test_dl = test_dl()
+                # test_dataloaders可能是列表
+                if isinstance(test_dl, list):
+                    for i, dl in enumerate(test_dl):
+                        dataloaders.append((f'test_{i}', dl))
+                else:
+                    dataloaders.append(('test', test_dl))
             
             for stage, dataloader in dataloaders:
                 if dataloader is not None:
