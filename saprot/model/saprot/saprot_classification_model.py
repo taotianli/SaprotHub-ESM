@@ -96,10 +96,12 @@ class SaprotClassificationModel(SaprotBaseModel):
                         print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
                         dataloader.dataset.set_esm_model(self.model)
 
-    def forward(self, inputs=None, coords=None, sequences=None, **kwargs):
+    def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, **kwargs):
         # Handle different input formats
         if inputs is None and sequences is not None:
             inputs = {"sequences": sequences}
+        elif inputs is None and embeddings is not None:
+            inputs = {"embeddings": embeddings}
         elif inputs is None:
             inputs = kwargs
         
@@ -110,131 +112,78 @@ class SaprotClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # Handle sequences from ESM3-compatible dataset
-        sequences = inputs.get("sequences", None)
-        if sequences is not None:
-            # Process sequences using ESM3
+        # 优先处理预编码的嵌入
+        if "embeddings" in inputs:
+            print(f"[模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
+            stacked_features = inputs["embeddings"].to(device=device, dtype=model_dtype)
+            
+        elif "sequences" in inputs:
+            print(f"[模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
+            sequences = inputs["sequences"]
+            
+            # Process sequences using ESM3 in the model
             from esm.sdk.api import ESMProtein
             
             features = []
-            for seq in sequences:
-                # Use cached encoding if available
-                if seq in self._esm3_encoding_cache:
-                    cached_feature = self._esm3_encoding_cache[seq]
-                    features.append(cached_feature.to(device=device, dtype=model_dtype))
-                    continue
-                
-                protein = ESMProtein(sequence=seq)
-                # Encode protein using ESM3 model
-                encoded_protein = self.model.encode(protein)
-                
-                # Extract sequence embeddings
-                if hasattr(encoded_protein, 'sequence'):
-                    seq_repr = encoded_protein.sequence
-                    if torch.is_tensor(seq_repr):
-                        # Apply mean pooling if it's a sequence of embeddings
-                        if seq_repr.dim() > 1:
-                            feature = seq_repr.mean(dim=0)
-                        else:
-                            feature = seq_repr
-                    else:
-                        # Convert to tensor with proper device and dtype
-                        tensor_repr = torch.tensor(seq_repr, device=device, dtype=model_dtype)
-                        if tensor_repr.dim() > 1:
-                            feature = tensor_repr.mean(dim=0)
-                        else:
-                            feature = tensor_repr
+            for i, seq in enumerate(sequences):
+                try:
+                    protein = ESMProtein(sequence=seq)
+                    with torch.no_grad():
+                        encoded_protein = self.model.encode(protein)
                     
-                    # Cache the feature (on CPU to save GPU memory)
-                    self._esm3_encoding_cache[seq] = feature.cpu()
-                    features.append(feature.to(device=device, dtype=model_dtype))
-                else:
-                    # Determine embedding size if not cached
-                    if self._feature_dim_cache is None:
-                        try:
-                            sample_protein = ESMProtein(sequence="A")
-                            sample_encoded = self.model.encode(sample_protein)
-                            if hasattr(sample_encoded, 'sequence') and torch.is_tensor(sample_encoded.sequence):
-                                if sample_encoded.sequence.dim() > 1:
-                                    self._feature_dim_cache = sample_encoded.sequence.shape[-1]
-                                else:
-                                    self._feature_dim_cache = sample_encoded.sequence.shape[0]
+                    # Extract sequence embeddings
+                    if hasattr(encoded_protein, 'sequence'):
+                        seq_repr = encoded_protein.sequence
+                        if torch.is_tensor(seq_repr):
+                            # Apply mean pooling if it's a sequence of embeddings
+                            if seq_repr.dim() > 1:
+                                feature = seq_repr.mean(dim=0)
                             else:
-                                self._feature_dim_cache = 2560
-                        except:
-                            self._feature_dim_cache = 2560
-                    
-                    feature = torch.zeros(self._feature_dim_cache, device=device, dtype=model_dtype)
-                    features.append(feature)
-            
-            # Ensure all features have the same dimension
-            if features:
-                # Use cached dimension or determine from first feature
-                if self._feature_dim_cache is None and len(features) > 0:
-                    self._feature_dim_cache = features[0].shape[0]
-                
-                target_size = self._feature_dim_cache
-                normalized_features = []
-                
-                for feat in features:
-                    if feat.shape[0] != target_size:
-                        # Resize to target size
-                        if feat.shape[0] > target_size:
-                            norm_feat = feat[:target_size]
+                                feature = seq_repr
                         else:
-                            norm_feat = torch.cat([feat, torch.zeros(target_size - feat.shape[0], device=device, dtype=model_dtype)])
+                            # Convert to tensor with proper device and dtype
+                            tensor_repr = torch.tensor(seq_repr, device=device, dtype=model_dtype)
+                            if tensor_repr.dim() > 1:
+                                feature = tensor_repr.mean(dim=0)
+                            else:
+                                feature = tensor_repr
+                        
+                        features.append(feature.to(device=device, dtype=model_dtype))
+                        print(f"[模型调试] 序列 {i} 编码完成，特征维度: {feature.shape}")
                     else:
-                        norm_feat = feat
-                    
-                    # Ensure proper device and dtype
-                    norm_feat = norm_feat.to(device=device, dtype=model_dtype)
-                    normalized_features.append(norm_feat)
-                
-                stacked_features = torch.stack(normalized_features)
-            else:
-                # Use cached dimension or default
-                embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
-                stacked_features = torch.zeros(1, embedding_size, device=device, dtype=model_dtype)
-        
-        else:
-            # Legacy handling for pre-encoded data
-            encoded_proteins = inputs.get("inputs", inputs)
-            features = []
-            for protein in encoded_proteins:
-                seq_attr = getattr(protein, 'sequence', None)
-                if seq_attr is not None:
-                    if torch.is_tensor(seq_attr):
-                        feat = seq_attr.mean(dim=0) if seq_attr.dim() > 1 else seq_attr
-                        features.append(feat.to(device=device, dtype=model_dtype))
-                    else:
-                        tensor_repr = torch.tensor(seq_attr, device=device, dtype=model_dtype)
-                        feat = tensor_repr.mean(dim=0) if tensor_repr.dim() > 1 else tensor_repr
-                        features.append(feat)
-                else:
-                    embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
-                    features.append(torch.zeros(embedding_size, device=device, dtype=model_dtype))
+                        print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
+                        feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                        features.append(feature)
+                except Exception as e:
+                    print(f"[模型调试] 序列 {i} 编码出错: {str(e)}")
+                    feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                    features.append(feature)
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                embedding_size = self._feature_dim_cache if self._feature_dim_cache is not None else 2560
-                stacked_features = torch.zeros(1, embedding_size, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+        
+        else:
+            print(f"[模型调试] ❌ 输入中没有找到embeddings或sequences")
+            stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
         # Get the actual input dimension from the features
         actual_input_dim = stacked_features.shape[-1]
+        print(f"[模型调试] 特征维度: {stacked_features.shape}, 分类头输入维度: {self.classification_head.in_features}")
         
         # 检查分类头的输入维度是否匹配，如果不匹配则重建
         if self.classification_head.in_features != actual_input_dim:
-            print(f"重建分类头: {self.classification_head.in_features} -> {actual_input_dim}")
+            print(f"[模型调试] 🔧 重建分类头: {self.classification_head.in_features} -> {actual_input_dim}")
             self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
             
             # 更新feature cache
             self._feature_dim_cache = actual_input_dim
-            print(f"分类头重建完成，输入维度: {actual_input_dim}")
+            print(f"[模型调试] ✅ 分类头重建完成")
             
             # 重新配置优化器以包含新的分类头参数
             self._reconfigure_optimizer()
@@ -244,6 +193,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # Forward pass
         logits = self.classification_head(stacked_features)
+        print(f"[模型调试] 分类输出形状: {logits.shape}")
         
         return logits
 

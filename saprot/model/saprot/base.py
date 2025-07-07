@@ -254,11 +254,38 @@ class SaprotBaseModel(AbstractModel):
         
         # Initialize ESM3 model for compatibility
         from esm.models.esm3 import ESM3
-        self.model = ESM3.from_pretrained("esm3-open")
-        
+
+        # 从config_path确定ESM3模型名称
+        if self.config_path and self.config_path != "esm3-open":
+            # 如果提供了具体的config_path，使用它
+            esm3_model_name = self.config_path
+            print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
+        else:
+            # 默认使用esm3-open
+            esm3_model_name = "esm3-open"
+            print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
+
+        print(f"🚀 开始加载ESM3模型...")
+        self.model = ESM3.from_pretrained(esm3_model_name)
+        print(f"✅ ESM3模型加载完成: {esm3_model_name}")
+
+        # 打印模型信息
+        if hasattr(self.model, 'config'):
+            print(f"📊 模型配置信息: {self.model.config}")
+
+        print(f"🎯 模型设备: {next(self.model.parameters()).device}")
+        print(f"🎯 模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
+
         if self.extra_config is None:
             self.extra_config = {}
-        
+
+        # 冻结骨干网络（如果需要）
+        if self.freeze_backbone:
+            print(f"❄️ 冻结ESM3骨干网络参数...")
+            for param in self.model.parameters():
+                param.requires_grad = False
+            print(f"❄️ 骨干网络已冻结")
+
         # # Disable the pooling layer
         # backbone = getattr(self.model, "esm", self.model.bert)
         # backbone.pooler = None
