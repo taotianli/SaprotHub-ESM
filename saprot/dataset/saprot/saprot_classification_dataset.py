@@ -88,13 +88,23 @@ class SaprotClassificationDataset(LMDBDataset):
                         encoded_protein = self.esm_model.encode(protein)
                         print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
                         
-                        # 检查encoded_protein的属性
-                        if hasattr(encoded_protein, '__dict__'):
-                            attrs = [attr for attr in dir(encoded_protein) if not attr.startswith('_')]
-                            print(f"[数据集调试] 索引 {index} - encoded_protein属性: {attrs[:5]}...")  # 只显示前5个属性
-                        
-                        # 直接返回encoded_protein
-                        sequence_embedding = encoded_protein
+                        # 从encoded_protein中提取sequence token
+                        if hasattr(encoded_protein, 'sequence'):
+                            sequence_tokens = getattr(encoded_protein, 'sequence')
+                            print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
+                            
+                            if torch.is_tensor(sequence_tokens):
+                                print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}")
+                                sequence_embedding = sequence_tokens
+                            else:
+                                # 如果不是tensor，转换为tensor
+                                sequence_embedding = torch.tensor(sequence_tokens)
+                                print(f"[数据集调试] 索引 {index} - 转换为tensor，形状: {sequence_embedding.shape}")
+                        else:
+                            print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
+                            print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
+                            # 返回原始序列
+                            sequence_embedding = seq
                             
                     except Exception as encode_error:
                         print(f"[数据集调试] 索引 {index} - ESM3编码失败: {str(encode_error)}")
@@ -133,23 +143,35 @@ class SaprotClassificationDataset(LMDBDataset):
         # 检查第一个元素的类型来决定如何处理
         first_embedding = embeddings[0]
         
-        # 检查是否是encoded_protein对象（通常有sequence属性）
-        if hasattr(first_embedding, 'sequence') or str(type(first_embedding)).find('ESMProtein') != -1:
-            # 所有输入都是encoded_protein对象
-            print(f"[数据集调试] 批处理大小: {len(embeddings)}, 类型: encoded_protein对象")
-            inputs = {"encoded_proteins": embeddings}
-        
-        elif torch.is_tensor(first_embedding):
-            # 所有输入都是编码后的嵌入张量
-            print(f"[数据集调试] 批处理大小: {len(embeddings)}, 嵌入维度: {first_embedding.shape}")
+        if torch.is_tensor(first_embedding):
+            # 所有输入都是token tensor
+            print(f"[数据集调试] 批处理大小: {len(embeddings)}, token形状: {first_embedding.shape}")
             
-            # 堆叠所有嵌入
+            # 检查是否需要padding（如果长度不同）
+            max_len = max(emb.shape[0] if torch.is_tensor(emb) else 0 for emb in embeddings)
+            print(f"[数据集调试] 最大序列长度: {max_len}")
+            
+            # 处理padding
+            padded_tokens = []
+            for emb in embeddings:
+                if torch.is_tensor(emb):
+                    if emb.shape[0] < max_len:
+                        # 需要padding，用0填充
+                        padding_size = max_len - emb.shape[0]
+                        padded_emb = torch.cat([emb, torch.zeros(padding_size, dtype=emb.dtype)])
+                        padded_tokens.append(padded_emb)
+                    else:
+                        padded_tokens.append(emb)
+                else:
+                    # 不是tensor的情况，创建零tensor
+                    padded_tokens.append(torch.zeros(max_len, dtype=torch.long))
+            
             try:
-                stacked_embeddings = torch.stack(embeddings)
-                print(f"[数据集调试] 堆叠后的嵌入形状: {stacked_embeddings.shape}")
-                inputs = {"embeddings": stacked_embeddings}
+                stacked_tokens = torch.stack(padded_tokens)
+                print(f"[数据集调试] 堆叠后的token形状: {stacked_tokens.shape}")
+                inputs = {"tokens": stacked_tokens}
             except Exception as e:
-                print(f"[数据集调试] ❌ 堆叠嵌入失败: {str(e)}")
+                print(f"[数据集调试] ❌ 堆叠tokens失败: {str(e)}")
                 # 回退到序列处理
                 inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings]}
         else:
