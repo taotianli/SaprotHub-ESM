@@ -79,33 +79,110 @@ class SaprotClassificationDataset(LMDBDataset):
                 # 使用ESM3模型编码sequence
                 print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
                 
+                # 创建ESMProtein对象
                 protein = ESMProtein(sequence=seq)
-                with torch.no_grad():  # 编码时不需要梯度
-                    encoded_protein = self.esm_model.encode(protein)
                 
-                # 获取编码结果并打印token信息
-                if hasattr(encoded_protein, 'sequence'):
-                    seq_repr = encoded_protein.sequence
-                    if torch.is_tensor(seq_repr):
-                        # 应用平均池化获得固定长度的representation
-                        if seq_repr.dim() > 1:
-                            sequence_embedding = seq_repr.mean(dim=0)  # [seq_len, hidden_dim] -> [hidden_dim]
-                        else:
-                            sequence_embedding = seq_repr
+                with torch.no_grad():  # 编码时不需要梯度
+                    try:
+                        # 方法1: 尝试使用encode方法然后forward获取embeddings
+                        try:
+                            # 首先编码protein
+                            encoded_protein = self.esm_model.encode(protein)
+                            
+                            # 然后forward获取真正的嵌入
+                            output = self.esm_model.forward(encoded_protein)
+                            
+                            # 查找嵌入属性
+                            embedding = None
+                            if hasattr(output, 'embeddings'):
+                                embedding = output.embeddings
+                                print(f"[数据集调试] 索引 {index} - 使用output.embeddings")
+                            elif hasattr(output, 'last_hidden_state'):
+                                embedding = output.last_hidden_state  
+                                print(f"[数据集调试] 索引 {index} - 使用output.last_hidden_state")
+                            elif hasattr(output, 'sequence_embeddings'):
+                                embedding = output.sequence_embeddings
+                                print(f"[数据集调试] 索引 {index} - 使用output.sequence_embeddings")
+                            else:
+                                print(f"[数据集调试] 索引 {index} - 无法找到嵌入属性，output属性: {dir(output)}")
+                                
+                        except Exception as encode_error:
+                            print(f"[数据集调试] 索引 {index} - encode+forward方法失败: {str(encode_error)}")
+                            embedding = None
                         
-                        print(f"[数据集调试] 索引 {index} - ESM3原始输出形状: {seq_repr.shape}, dtype: {seq_repr.dtype}")
-                        print(f"[数据集调试] 索引 {index} - 池化后嵌入形状: {sequence_embedding.shape}")
-                        print(f"[数据集调试] 索引 {index} - Token统计: min={seq_repr.min().item():.4f}, max={seq_repr.max().item():.4f}, mean={seq_repr.mean().item():.4f}")
-                    else:
-                        # 处理非tensor类型的输出
-                        print(f"[数据集调试] 索引 {index} - ESM3编码结果为非tensor类型: {type(seq_repr)}")
-                        sequence_embedding = torch.tensor(seq_repr, dtype=torch.float32)
-                        if sequence_embedding.dim() > 1:
-                            sequence_embedding = sequence_embedding.mean(dim=0)
-                else:
-                    print(f"[数据集调试] 索引 {index} - ESM3编码结果无sequence属性，使用零向量")
-                    # 使用合理的默认嵌入维度
-                    sequence_embedding = torch.zeros(2560, dtype=torch.float32)  # ESM3的典型输出维度
+                        # 方法2: 如果方法1失败，尝试直接forward protein
+                        if embedding is None:
+                            try:
+                                print(f"[数据集调试] 索引 {index} - 尝试直接forward protein")
+                                output = self.esm_model.forward(protein)
+                                
+                                if hasattr(output, 'embeddings'):
+                                    embedding = output.embeddings
+                                    print(f"[数据集调试] 索引 {index} - 直接forward使用embeddings")
+                                elif hasattr(output, 'last_hidden_state'):
+                                    embedding = output.last_hidden_state
+                                    print(f"[数据集调试] 索引 {index} - 直接forward使用last_hidden_state")
+                                else:
+                                    print(f"[数据集调试] 索引 {index} - 直接forward也无法找到嵌入，output属性: {dir(output)}")
+                                    
+                            except Exception as forward_error:
+                                print(f"[数据集调试] 索引 {index} - 直接forward也失败: {str(forward_error)}")
+                                embedding = None
+
+                        # 方法3: 如果都失败，尝试使用模型的其他方法
+                        if embedding is None:
+                            try:
+                                # 检查模型是否有其他编码方法
+                                if hasattr(self.esm_model, 'encode_sequence'):
+                                    embedding = self.esm_model.encode_sequence(seq)
+                                    print(f"[数据集调试] 索引 {index} - 使用encode_sequence方法")
+                                elif hasattr(self.esm_model, 'get_embeddings'):
+                                    embedding = self.esm_model.get_embeddings(protein)
+                                    print(f"[数据集调试] 索引 {index} - 使用get_embeddings方法")
+                                else:
+                                    print(f"[数据集调试] 索引 {index} - 模型方法: {[m for m in dir(self.esm_model) if not m.startswith('_')]}")
+                                    embedding = None
+                                    
+                            except Exception as alt_error:
+                                print(f"[数据集调试] 索引 {index} - 替代方法也失败: {str(alt_error)}")
+                                embedding = None
+
+                        # 处理获得的嵌入
+                        if embedding is not None and torch.is_tensor(embedding):
+                            # 确保数据类型为float
+                            if embedding.dtype in [torch.int64, torch.int32, torch.long]:
+                                print(f"[数据集调试] 索引 {index} - 警告: 获得的是整数类型 {embedding.dtype}，可能是token IDs而非嵌入")
+                                # 这种情况下我们无法使用，返回原始序列
+                                sequence_embedding = seq
+                            else:
+                                # 应用平均池化获得固定长度的representation
+                                embedding = embedding.float()  # 确保是float类型
+                                
+                                print(f"[数据集调试] 索引 {index} - ESM3原始输出形状: {embedding.shape}, dtype: {embedding.dtype}")
+                                
+                                # 处理不同维度的嵌入
+                                if embedding.dim() == 3:  # [batch, seq_len, hidden_dim]
+                                    if embedding.shape[0] == 1:  # batch=1
+                                        embedding = embedding.squeeze(0)  # [seq_len, hidden_dim]
+                                    sequence_embedding = embedding.mean(dim=0)  # [hidden_dim]
+                                elif embedding.dim() == 2:  # [seq_len, hidden_dim] 
+                                    sequence_embedding = embedding.mean(dim=0)  # [hidden_dim]
+                                elif embedding.dim() == 1:  # [hidden_dim]
+                                    sequence_embedding = embedding
+                                else:
+                                    print(f"[数据集调试] 索引 {index} - 未知的嵌入维度: {embedding.shape}")
+                                    sequence_embedding = embedding.flatten()
+                                
+                                print(f"[数据集调试] 索引 {index} - 池化后嵌入形状: {sequence_embedding.shape}")
+                                print(f"[数据集调试] 索引 {index} - 嵌入统计: min={embedding.min().item():.4f}, max={embedding.max().item():.4f}, mean={embedding.mean().item():.4f}")
+                                print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功")
+                        else:
+                            print(f"[数据集调试] 索引 {index} - 所有方法都失败，使用零向量")
+                            sequence_embedding = torch.zeros(2560, dtype=torch.float32)
+                            
+                    except Exception as outer_error:
+                        print(f"[数据集调试] 索引 {index} - 外层编码失败: {str(outer_error)}")
+                        sequence_embedding = torch.zeros(2560, dtype=torch.float32)
             else:
                 print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
                 print(f"[数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
