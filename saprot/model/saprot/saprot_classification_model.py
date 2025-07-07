@@ -21,6 +21,12 @@ class SaprotClassificationModel(SaprotBaseModel):
         self._esm3_encoding_cache = {}
         super().__init__(task="classification", **kwargs)
         
+        # 预先创建分类头，使用默认维度，稍后会在first forward时调整
+        # 这确保分类头从一开始就在模型参数中
+        default_input_dim = 2560  # ESM3的默认输出维度
+        self.classification_head = torch.nn.Linear(default_input_dim, self.num_labels)
+        print(f"预创建分类头，输入维度: {default_input_dim}, 输出维度: {self.num_labels}")
+        
     def initialize_metrics(self, stage):
         # For newer versions of torchmetrics, need to specify task type
         if self.num_labels == 2:
@@ -29,6 +35,66 @@ class SaprotClassificationModel(SaprotBaseModel):
             task = "multiclass"
         
         return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
+
+    def setup(self, stage=None):
+        """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
+        super().setup(stage)
+        
+        # 延迟设置ESM3模型到数据集，因为数据集实例在dataloader创建时才生成
+        print("模型setup完成，将在训练开始时设置ESM3模型到数据集")
+
+    def on_train_start(self):
+        """训练开始时的回调，确保ESM3模型传递给数据集"""
+        super().on_train_start()
+        
+        # 设置ESM3模型到所有数据集
+        self._set_esm_model_to_datasets()
+
+    def on_validation_start(self):
+        """验证开始时的回调，确保ESM3模型传递给数据集"""
+        super().on_validation_start()
+        
+        # 设置ESM3模型到所有数据集
+        self._set_esm_model_to_datasets()
+
+    def on_test_start(self):
+        """测试开始时的回调，确保ESM3模型传递给数据集"""
+        super().on_test_start()
+        
+        # 设置ESM3模型到所有数据集
+        self._set_esm_model_to_datasets()
+
+    def _set_esm_model_to_datasets(self):
+        """将ESM3模型设置到所有数据集"""
+        if hasattr(self.trainer, 'datamodule'):
+            datasets = []
+            
+            # 获取所有数据集实例
+            if hasattr(self.trainer.datamodule, 'train_dataset'):
+                datasets.append(('train', self.trainer.datamodule.train_dataset))
+            if hasattr(self.trainer.datamodule, 'val_dataset'):
+                datasets.append(('val', self.trainer.datamodule.val_dataset))
+            if hasattr(self.trainer.datamodule, 'test_dataset'):
+                datasets.append(('test', self.trainer.datamodule.test_dataset))
+            
+            # 设置ESM3模型
+            for stage, dataset in datasets:
+                if dataset is not None and hasattr(dataset, 'set_esm_model'):
+                    print(f"设置ESM3模型到{stage}数据集: {type(dataset).__name__}")
+                    dataset.set_esm_model(self.model)
+                    
+            # 另外检查dataloader中的数据集
+            dataloaders = [
+                ('train', getattr(self.trainer, 'train_dataloader', lambda: None)()),
+                ('val', getattr(self.trainer, 'val_dataloaders', lambda: None)()),
+                ('test', getattr(self.trainer, 'test_dataloaders', lambda: None)())
+            ]
+            
+            for stage, dataloader in dataloaders:
+                if dataloader is not None:
+                    if hasattr(dataloader, 'dataset') and hasattr(dataloader.dataset, 'set_esm_model'):
+                        print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
+                        dataloader.dataset.set_esm_model(self.model)
 
     def forward(self, inputs=None, coords=None, sequences=None, **kwargs):
         # Handle different input formats
@@ -160,32 +226,39 @@ class SaprotClassificationModel(SaprotBaseModel):
         # Get the actual input dimension from the features
         actual_input_dim = stacked_features.shape[-1]
         
-        # Create classification head only once with consistent dimension
-        if not hasattr(self, 'classification_head'):
+        # 检查分类头的输入维度是否匹配，如果不匹配则重建
+        if self.classification_head.in_features != actual_input_dim:
+            print(f"重建分类头: {self.classification_head.in_features} -> {actual_input_dim}")
             self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
             self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
-            # Register the classification head as a module
-            self.add_module('classification_head', self.classification_head)
-            print(f"Created classification head with input dim: {actual_input_dim}")
-        elif self.classification_head.in_features != actual_input_dim:
-            # This should not happen with proper caching, but add warning
-            print(f"Warning: Feature dimension mismatch! Expected {self.classification_head.in_features}, got {actual_input_dim}")
-            print("This indicates inconsistent ESM3 encoding. Using zero padding/truncation.")
             
-            # Adjust features to match existing classification head
-            expected_dim = self.classification_head.in_features
-            if actual_input_dim != expected_dim:
-                batch_size = stacked_features.shape[0]
-                if actual_input_dim > expected_dim:
-                    stacked_features = stacked_features[:, :expected_dim]
-                else:
-                    padding = torch.zeros(batch_size, expected_dim - actual_input_dim, device=device, dtype=model_dtype)
-                    stacked_features = torch.cat([stacked_features, padding], dim=1)
+            # 更新feature cache
+            self._feature_dim_cache = actual_input_dim
+            print(f"分类头重建完成，输入维度: {actual_input_dim}")
+            
+            # 重新配置优化器以包含新的分类头参数
+            self._reconfigure_optimizer()
+        
+        # 确保分类头在正确的设备和数据类型上
+        self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
         # Forward pass
         logits = self.classification_head(stacked_features)
         
         return logits
+
+    def _reconfigure_optimizer(self):
+        """重新配置优化器以包含分类头参数"""
+        if hasattr(self, 'trainer') and self.trainer is not None and hasattr(self, 'optimizers'):
+            print("重新配置优化器以包含分类头参数")
+            
+            # 重新初始化优化器以包含新的参数
+            self.init_optimizers()
+            
+            # 如果训练器存在，更新训练器的优化器配置
+            if hasattr(self.trainer, 'strategy'):
+                self.trainer.strategy.optimizers = [self.optimizer]
+                print("优化器重新配置完成")
 
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
