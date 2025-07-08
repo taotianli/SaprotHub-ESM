@@ -22,7 +22,14 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # 创建固定维度的分类头
         self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
+        
+        # 确保分类头参数可以训练
+        for param in self.classification_head.parameters():
+            param.requires_grad = True
+            
         print(f"创建固定分类头: {self.fixed_seq_length} -> {self.num_labels}")
+        print(f"分类头参数: weight={self.classification_head.weight.shape}, bias={self.classification_head.bias.shape}")
+        print(f"分类头参数requires_grad: weight={self.classification_head.weight.requires_grad}, bias={self.classification_head.bias.requires_grad}")
         
         # 重新初始化优化器以包含分类头参数
         print("重新初始化优化器以包含分类头参数...")
@@ -448,3 +455,71 @@ class SaprotClassificationModel(SaprotBaseModel):
                 print(f"{name}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
             
             print("=" * 50 + "\n")
+
+    def init_optimizers(self):
+        """重写优化器初始化，确保包含分类头参数"""
+        import copy
+        copy_optimizer_kwargs = copy.deepcopy(self.optimizer_kwargs)
+        
+        # No decay for layer norm and bias
+        no_decay = ['LayerNorm.weight', 'bias']
+        weight_decay = copy_optimizer_kwargs.pop("weight_decay")
+
+        # 收集所有需要优化的参数
+        all_params = []
+        esm3_param_count = 0
+        
+        # 添加ESM3模型参数
+        if hasattr(self, 'model') and self.model is not None:
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    all_params.append((name, param))
+                    esm3_param_count += 1
+        
+        print(f"ESM3模型可训练参数数量: {esm3_param_count}")
+        
+        # 添加分类头参数
+        classification_head_param_count = 0
+        if hasattr(self, 'classification_head') and self.classification_head is not None:
+            for name, param in self.classification_head.named_parameters():
+                if param.requires_grad:
+                    full_name = f"classification_head.{name}"
+                    all_params.append((full_name, param))
+                    classification_head_param_count += 1
+                    print(f"分类头参数: {full_name}, shape={param.shape}, requires_grad={param.requires_grad}")
+
+        print(f"分类头可训练参数数量: {classification_head_param_count}")
+        print(f"总可训练参数数量: {len(all_params)}")
+
+        if not all_params:
+            print("⚠️ 警告: 没有找到需要优化的参数!")
+            # 创建一个虚拟参数避免优化器错误
+            dummy_param = torch.nn.Parameter(torch.tensor(0.0))
+            optimizer_grouped_parameters = [
+                {'params': [dummy_param], 'weight_decay': 0.0}
+            ]
+        else:
+            # 根据参数名称分组
+            optimizer_grouped_parameters = [
+                {'params': [param for name, param in all_params if not any(nd in name for nd in no_decay)],
+                 'weight_decay': weight_decay},
+                {'params': [param for name, param in all_params if any(nd in name for nd in no_decay)],
+                 'weight_decay': 0.0}
+            ]
+            
+            print(f"✅ 优化器参数分组:")
+            print(f"  - 带权重衰减的参数: {len(optimizer_grouped_parameters[0]['params'])}")
+            print(f"  - 不带权重衰减的参数: {len(optimizer_grouped_parameters[1]['params'])}")
+
+        # 创建优化器
+        optimizer_cls = eval(f"torch.optim.{copy_optimizer_kwargs.pop('class')}")
+        self.optimizer = optimizer_cls(optimizer_grouped_parameters,
+                                       lr=self.lr_scheduler_kwargs['init_lr'],
+                                       **copy_optimizer_kwargs)
+        
+        # 创建学习率调度器
+        tmp_kwargs = copy.deepcopy(self.lr_scheduler_kwargs)
+        lr_scheduler = tmp_kwargs.pop("class")
+        self.lr_scheduler = eval(lr_scheduler)(self.optimizer, **tmp_kwargs)
+        
+        print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
