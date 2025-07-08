@@ -24,6 +24,11 @@ class SaprotClassificationModel(SaprotBaseModel):
         self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
         print(f"创建固定分类头: {self.fixed_seq_length} -> {self.num_labels}")
         
+        # 重新初始化优化器以包含分类头参数
+        print("重新初始化优化器以包含分类头参数...")
+        self.init_optimizers()
+        print("优化器重新初始化完成")
+        
     def initialize_metrics(self, stage):
         # For newer versions of torchmetrics, need to specify task type
         if self.num_labels == 2:
@@ -42,6 +47,9 @@ class SaprotClassificationModel(SaprotBaseModel):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
         super().on_train_start()
         self._set_esm_model_to_datasets()
+        
+        # 验证分类头参数是否在优化器中
+        self._verify_classification_head_in_optimizer()
 
     def on_validation_start(self):
         """验证开始时的回调，确保ESM3模型传递给数据集"""
@@ -326,6 +334,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             print(f"权重梯度统计: {'有梯度' if weight.grad is not None else '无梯度'}")
             if weight.grad is not None:
                 print(f"梯度统计: min={weight.grad.min().item():.6f}, max={weight.grad.max().item():.6f}, mean={weight.grad.mean().item():.6f}")
+                print(f"梯度范数: {weight.grad.norm().item():.6f}")
             
             if bias is not None:
                 print(f"偏置形状: {bias.shape}")
@@ -333,6 +342,7 @@ class SaprotClassificationModel(SaprotBaseModel):
                 print(f"偏置梯度统计: {'有梯度' if bias.grad is not None else '无梯度'}")
                 if bias.grad is not None:
                     print(f"偏置梯度统计: min={bias.grad.min().item():.6f}, max={bias.grad.max().item():.6f}, mean={bias.grad.mean().item():.6f}")
+                    print(f"偏置梯度范数: {bias.grad.norm().item():.6f}")
             
             # 检查权重是否在训练中发生变化
             if not hasattr(self, '_prev_weights'):
@@ -340,13 +350,101 @@ class SaprotClassificationModel(SaprotBaseModel):
                 print("首次记录权重")
             else:
                 weight_diff = torch.abs(weight - self._prev_weights).mean().item()
-                print(f"权重变化量: {weight_diff:.8f}")
+                weight_max_diff = torch.abs(weight - self._prev_weights).max().item()
+                print(f"权重平均变化量: {weight_diff:.8f}")
+                print(f"权重最大变化量: {weight_max_diff:.8f}")
                 if weight_diff < 1e-8:
                     print("⚠️  警告: 权重几乎没有变化，可能没有在训练!")
+                    # 进一步检查优化器状态
+                    self._check_optimizer_state()
                 else:
-                    print("✓ 权重正在更新")
+                    print("✅ 权重正在更新")
                 self._prev_weights = weight.clone().detach()
             
             print("=" * 60 + "\n")
         else:
             print(f"\n⚠️  {stage_name}阶段结束 - 分类头尚未创建 (Epoch {self.current_epoch})\n")
+
+    def _check_optimizer_state(self):
+        """检查优化器状态以诊断训练问题"""
+        if hasattr(self, 'optimizer'):
+            print("\n=== 优化器状态诊断 ===")
+            
+            # 检查学习率
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"当前学习率: {current_lr}")
+            
+            if current_lr == 0:
+                print("❌ 学习率为0，这会阻止参数更新!")
+            elif current_lr < 1e-8:
+                print("⚠️  学习率非常小，可能导致缓慢的收敛")
+            
+            # 检查分类头参数是否在优化器中
+            classification_head_param_ids = {id(p) for p in self.classification_head.parameters()}
+            optimizer_param_ids = set()
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    optimizer_param_ids.add(id(param))
+            
+            missing_params = classification_head_param_ids - optimizer_param_ids
+            if missing_params:
+                print("❌ 分类头参数不在优化器中!")
+            else:
+                print("✅ 分类头参数已在优化器中")
+            
+            # 检查梯度
+            total_grad_norm = 0.0
+            param_count = 0
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    if param.grad is not None:
+                        total_grad_norm += param.grad.norm().item() ** 2
+                        param_count += 1
+            
+            if param_count > 0:
+                total_grad_norm = total_grad_norm ** 0.5
+                print(f"总梯度范数: {total_grad_norm:.6f}")
+                print(f"有梯度的参数数: {param_count}")
+            else:
+                print("❌ 没有参数有梯度!")
+            
+            print("=" * 30)
+
+    def _verify_classification_head_in_optimizer(self):
+        """验证分类头参数是否包含在优化器中"""
+        if hasattr(self, 'classification_head') and hasattr(self, 'optimizer'):
+            # 获取分类头参数的id
+            classification_head_param_ids = {id(p) for p in self.classification_head.parameters()}
+            
+            # 获取优化器中所有参数的id
+            optimizer_param_ids = set()
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    optimizer_param_ids.add(id(param))
+            
+            # 检查交集
+            included_params = classification_head_param_ids & optimizer_param_ids
+            missing_params = classification_head_param_ids - optimizer_param_ids
+            
+            print(f"\n=== 分类头参数优化器验证 ===")
+            print(f"分类头总参数数: {len(classification_head_param_ids)}")
+            print(f"优化器中的分类头参数数: {len(included_params)}")
+            print(f"缺失的分类头参数数: {len(missing_params)}")
+            
+            if missing_params:
+                print("❌ 警告: 以下分类头参数未包含在优化器中:")
+                for name, param in self.classification_head.named_parameters():
+                    if id(param) in missing_params:
+                        print(f"  - {name}: {param.shape}, requires_grad={param.requires_grad}")
+                print("🔧 正在重新初始化优化器...")
+                self.init_optimizers()
+                print("✅ 优化器重新初始化完成")
+            else:
+                print("✅ 所有分类头参数都已包含在优化器中")
+            
+            # 验证参数的requires_grad设置
+            print(f"\n=== 分类头参数梯度设置 ===")
+            for name, param in self.classification_head.named_parameters():
+                print(f"{name}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
+            
+            print("=" * 50 + "\n")

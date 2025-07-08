@@ -103,7 +103,7 @@ class SaprotClassificationDataset(LMDBDataset):
         try:
             if self.esm_model is not None:
                 # 使用ESM3模型编码sequence
-                print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                # print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
                 
                 # 创建ESMProtein对象并编码
                 protein = ESMProtein(sequence=seq)
@@ -112,44 +112,44 @@ class SaprotClassificationDataset(LMDBDataset):
                     try:
                         # 直接使用encode方法获取encoded_protein
                         encoded_protein = self.esm_model.encode(protein)
-                        print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
+                        # print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
                         
                         # 从encoded_protein中提取sequence token
                         if hasattr(encoded_protein, 'sequence'):
                             sequence_tokens = getattr(encoded_protein, 'sequence')
-                            print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
+                            # print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
                             
                             if torch.is_tensor(sequence_tokens):
-                                print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
+                                # print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
                                 # 将tensor移动到模型设备（通常是GPU）
                                 sequence_tokens = sequence_tokens.to(self.model_device)
                                 # 直接在数据集中进行固定长度处理
                                 sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                                # print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                             else:
                                 # 如果不是tensor，转换为tensor并处理
                                 # 在模型设备上创建tensor（GPU训练时直接在GPU上）
                                 sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device)
                                 sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                                # print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                         else:
-                            print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
-                            print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
+                            # print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
+                            # print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
                             # 返回原始序列
                             sequence_embedding = seq
                             
                     except Exception as encode_error:
-                        print(f"[数据集调试] 索引 {index} - ESM3编码失败: {str(encode_error)}")
+                        # print(f"[数据集调试] 索引 {index} - ESM3编码失败: {str(encode_error)}")
                         # 发生错误时返回原始序列
                         sequence_embedding = seq
             else:
-                print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-                print(f"[数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
+                # print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                # print(f"[数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
                 # 返回原始序列，让模型处理
                 sequence_embedding = seq
         except Exception as e:
-            print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-            print(f"[数据集调试] 索引 {index} - ❌ ESM3编码失败: {str(e)}")
+            # print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+            # print(f"[数据集调试] 索引 {index} - ❌ ESM3编码失败: {str(e)}")
             # 发生错误时返回原始序列
             sequence_embedding = seq
         
@@ -177,7 +177,7 @@ class SaprotClassificationDataset(LMDBDataset):
         
         if torch.is_tensor(first_embedding):
             # 所有输入都是token tensor，且应该已经是固定长度
-            print(f"[数据集调试] 批处理大小: {len(embeddings)}, 固定token长度: {first_embedding.shape}")
+            # print(f"[数据集调试] 批处理大小: {len(embeddings)}, 固定token长度: {first_embedding.shape}")
             
             # 验证所有tensor都是相同长度
             expected_length = self.fixed_seq_length
@@ -186,27 +186,27 @@ class SaprotClassificationDataset(LMDBDataset):
             for i, emb in enumerate(embeddings):
                 if torch.is_tensor(emb):
                     if emb.shape[0] != expected_length:
-                        print(f"[数据集调试] ⚠️ 样本 {i} 长度不匹配: {emb.shape[0]} vs {expected_length}，重新处理")
+                        # print(f"[数据集调试] ⚠️ 样本 {i} 长度不匹配: {emb.shape[0]} vs {expected_length}，重新处理")
                         # 重新进行截断或padding
                         emb = self._pad_or_truncate_tensor(emb, expected_length)
                     processed_tokens.append(emb)
                 else:
                     # 创建固定长度的零tensor，使用与第一个tensor相同的设备
-                    print(f"[数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
+                    # print(f"[数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
                     device = processed_tokens[0].device if processed_tokens else self.model_device
                     processed_tokens.append(torch.zeros(expected_length, dtype=torch.long, device=device))
             
             try:
                 stacked_tokens = torch.stack(processed_tokens)
-                print(f"[数据集调试] 堆叠后的固定长度token形状: {stacked_tokens.shape}")
+                # print(f"[数据集调试] 堆叠后的固定长度token形状: {stacked_tokens.shape}")
                 inputs = {"tokens": stacked_tokens}
             except Exception as e:
-                print(f"[数据集调试] ❌ 堆叠tokens失败: {str(e)}")
+                # print(f"[数据集调试] ❌ 堆叠tokens失败: {str(e)}")
                 # 回退到序列处理
                 inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings]}
         else:
             # 包含原始序列（编码失败的情况）
-            print(f"[数据集调试] 批处理包含原始序列，将由模型处理")
+            # print(f"[数据集调试] 批处理包含原始序列，将由模型处理")
             inputs = {"sequences": embeddings}
 
         if self.use_bias_feature:
