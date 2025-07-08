@@ -5,8 +5,8 @@ import torch.distributed as dist
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
-# 导入学习率调度器
-from ...utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
+# 导入学习率调度器 - 修复导入路径
+from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
 @register_model
