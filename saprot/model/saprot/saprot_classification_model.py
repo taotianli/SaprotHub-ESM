@@ -9,21 +9,20 @@ from .base import SaprotBaseModel
 
 @register_model
 class SaprotClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels: int, **kwargs):
+    def __init__(self, num_labels: int, fixed_seq_length: int = 2048, **kwargs):
         """
         Args:
             num_labels: number of labels
+            fixed_seq_length: 固定序列长度，用于截断或padding
             **kwargs: other arguments for SaprotBaseModel
         """
         self.num_labels = num_labels
-        # Cache for ESM3 feature dimensions to ensure consistency
-        self._feature_dim_cache = None
-        self._esm3_encoding_cache = {}
+        self.fixed_seq_length = fixed_seq_length
         super().__init__(task="classification", **kwargs)
         
-        # 不预先创建分类头，而是根据实际token维度动态创建
-        self.classification_head = None
-        print(f"分类头将根据输入token维度动态创建，输出维度: {self.num_labels}")
+        # 创建固定维度的分类头
+        self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
+        print(f"创建固定分类头: {self.fixed_seq_length} -> {self.num_labels}")
         
     def initialize_metrics(self, stage):
         # For newer versions of torchmetrics, need to specify task type
@@ -37,29 +36,21 @@ class SaprotClassificationModel(SaprotBaseModel):
     def setup(self, stage=None):
         """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
         super().setup(stage)
-        
-        # 延迟设置ESM3模型到数据集，因为数据集实例在dataloader创建时才生成
         print("模型setup完成，将在训练开始时设置ESM3模型到数据集")
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
         super().on_train_start()
-        
-        # 设置ESM3模型到所有数据集
         self._set_esm_model_to_datasets()
 
     def on_validation_start(self):
         """验证开始时的回调，确保ESM3模型传递给数据集"""
         super().on_validation_start()
-        
-        # 设置ESM3模型到所有数据集
         self._set_esm_model_to_datasets()
 
     def on_test_start(self):
         """测试开始时的回调，确保ESM3模型传递给数据集"""
         super().on_test_start()
-        
-        # 设置ESM3模型到所有数据集
         self._set_esm_model_to_datasets()
 
     def _set_esm_model_to_datasets(self):
@@ -119,6 +110,35 @@ class SaprotClassificationModel(SaprotBaseModel):
                         print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
                         dataloader.dataset.set_esm_model(self.model)
 
+    def _pad_or_truncate_features(self, features, target_length):
+        """
+        将特征截断或padding到固定长度
+        Args:
+            features: 输入特征 tensor [batch_size, seq_len] 或 [batch_size, seq_len, hidden_dim]
+            target_length: 目标长度
+        Returns:
+            处理后的特征 [batch_size, target_length] 或 [batch_size, target_length, hidden_dim]
+        """
+        if features.dim() == 2:
+            # [batch_size, seq_len] 的情况
+            batch_size, seq_len = features.shape
+            if seq_len > target_length:
+                # 截断
+                return features[:, :target_length]
+            elif seq_len < target_length:
+                # padding
+                padding_size = target_length - seq_len
+                padding = torch.zeros(batch_size, padding_size, device=features.device, dtype=features.dtype)
+                return torch.cat([features, padding], dim=1)
+            else:
+                return features
+        elif features.dim() == 3:
+            # [batch_size, seq_len, hidden_dim] 的情况，先平均池化
+            features = features.mean(dim=2)  # [batch_size, seq_len]
+            return self._pad_or_truncate_features(features, target_length)
+        else:
+            raise ValueError(f"不支持的特征维度: {features.shape}")
+
     def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, tokens=None, **kwargs):
         # Handle different input formats
         if inputs is None and sequences is not None:
@@ -142,37 +162,38 @@ class SaprotClassificationModel(SaprotBaseModel):
             print(f"[模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
             tokens = inputs["tokens"].to(device=device)
             
-            # 直接使用token序列作为特征
+            # 将tokens转换为浮点数类型并进行截断/padding
             try:
-                # 将tokens转换为浮点数类型
                 tokens_float = tokens.float().to(dtype=model_dtype)
                 
                 if tokens_float.dim() == 2:
                     batch_size, seq_len = tokens_float.shape
-                    print(f"[模型调试] batch_size: {batch_size}, seq_len: {seq_len}")
+                    print(f"[模型调试] 原始序列长度: {seq_len}, 目标长度: {self.fixed_seq_length}")
                     
-                    # 直接将token序列flatten作为特征向量
-                    stacked_features = tokens_float.view(batch_size, -1)  # [batch_size, seq_len]
-                    actual_input_dim = stacked_features.shape[1]
-                    print(f"[模型调试] 直接使用token序列，特征维度: {stacked_features.shape}")
+                    # 截断或padding到固定长度
+                    stacked_features = self._pad_or_truncate_features(tokens_float, self.fixed_seq_length)
+                    print(f"[模型调试] 处理后特征形状: {stacked_features.shape}")
                     
                 else:
                     print(f"[模型调试] ❌ tokens维度不符合预期: {tokens_float.shape}")
-                    # 创建默认特征
+                    # 创建固定长度的零特征
                     batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
-                    stacked_features = torch.zeros(batch_size, 100, device=device, dtype=model_dtype)  # 默认100维
-                    actual_input_dim = 100
+                    stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
                 
             except Exception as e:
                 print(f"[模型调试] tokens处理失败: {str(e)}")
                 batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
-                stacked_features = torch.zeros(batch_size, 100, device=device, dtype=model_dtype)
-                actual_input_dim = 100
+                stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
         
-        # 优先处理预编码的嵌入
+        # 处理预编码的嵌入
         elif "embeddings" in inputs:
             print(f"[模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
-            stacked_features = inputs["embeddings"].to(device=device, dtype=model_dtype)
+            embeddings = inputs["embeddings"].to(device=device, dtype=model_dtype)
+            # 如果是高维嵌入，需要转换为固定长度
+            if embeddings.dim() == 3:
+                # [batch_size, seq_len, hidden_dim] -> [batch_size, seq_len]
+                embeddings = embeddings.mean(dim=2)
+            stacked_features = self._pad_or_truncate_features(embeddings, self.fixed_seq_length)
         
         elif "sequences" in inputs:
             print(f"[模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
@@ -192,70 +213,44 @@ class SaprotClassificationModel(SaprotBaseModel):
                     if hasattr(encoded_protein, 'sequence'):
                         seq_tokens = getattr(encoded_protein, 'sequence')
                         if torch.is_tensor(seq_tokens):
-                            # 使用嵌入层处理tokens
-                            if hasattr(self.model, 'embed_tokens'):
-                                embedding = self.model.embed_tokens(seq_tokens.to(device))
-                            else:
-                                # 创建默认嵌入
-                                embedding = torch.zeros(seq_tokens.shape[0], 2560, device=device, dtype=model_dtype)
+                            # 直接使用tokens作为特征
+                            seq_feature = seq_tokens.float()
+                            # 截断或padding到固定长度
+                            if len(seq_feature) > self.fixed_seq_length:
+                                seq_feature = seq_feature[:self.fixed_seq_length]
+                            elif len(seq_feature) < self.fixed_seq_length:
+                                padding_size = self.fixed_seq_length - len(seq_feature)
+                                padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                seq_feature = torch.cat([seq_feature, padding])
                             
-                            # 应用平均池化
-                            if embedding.dim() > 1:
-                                feature = embedding.mean(dim=0)
-                            else:
-                                feature = embedding
+                            features.append(seq_feature.to(device=device, dtype=model_dtype))
+                            print(f"[模型调试] 序列 {i} 编码完成，固定长度: {seq_feature.shape}")
                         else:
-                            feature = torch.zeros(2560, device=device, dtype=model_dtype)
-                        
-                        features.append(feature.to(device=device, dtype=model_dtype))
-                        print(f"[模型调试] 序列 {i} 编码完成，特征维度: {feature.shape}")
+                            print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
+                            feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                            features.append(feature)
                     else:
                         print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
-                        feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                        feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                         features.append(feature)
                 except Exception as e:
                     print(f"[模型调试] 序列 {i} 编码出错: {str(e)}")
-                    feature = torch.zeros(2560, device=device, dtype=model_dtype)
+                    feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     features.append(feature)
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         else:
             print(f"[模型调试] ❌ 输入中没有找到tokens、embeddings或sequences")
-            stacked_features = torch.zeros(1, 2560, device=device, dtype=model_dtype)
+            stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # Get the actual input dimension from the features
-        actual_input_dim = stacked_features.shape[-1]
-        print(f"[模型调试] 特征维度: {stacked_features.shape}, 实际输入维度: {actual_input_dim}")
-
-        # 动态创建或重建分类头
-        if self.classification_head is None:
-            print(f"[模型调试] 🔧 首次创建分类头: {actual_input_dim} -> {self.num_labels}")
-            self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
-            self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
-            self._feature_dim_cache = actual_input_dim
-            print(f"[模型调试] ✅ 分类头创建完成")
-            
-            # 重新配置优化器以包含新的分类头参数
-            self._reconfigure_optimizer()
-            
-        elif self.classification_head.in_features != actual_input_dim:
-            print(f"[模型调试] 🔧 重建分类头: {self.classification_head.in_features} -> {actual_input_dim}")
-            self.classification_head = torch.nn.Linear(actual_input_dim, self.num_labels)
-            self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
-            
-            # 更新feature cache
-            self._feature_dim_cache = actual_input_dim
-            print(f"[模型调试] ✅ 分类头重建完成")
-            
-            # 重新配置优化器以包含新的分类头参数
-            self._reconfigure_optimizer()
+        print(f"[模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
 
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
@@ -265,19 +260,6 @@ class SaprotClassificationModel(SaprotBaseModel):
         print(f"[模型调试] 分类输出形状: {logits.shape}")
         
         return logits
-
-    def _reconfigure_optimizer(self):
-        """重新配置优化器以包含分类头参数"""
-        if hasattr(self, 'trainer') and self.trainer is not None and hasattr(self, 'optimizers'):
-            print("重新配置优化器以包含分类头参数")
-            
-            # 重新初始化优化器以包含新的参数
-            self.init_optimizers()
-            
-            # 如果训练器存在，更新训练器的优化器配置
-            if hasattr(self.trainer, 'strategy'):
-                self.trainer.strategy.optimizers = [self.optimizer]
-                print("优化器重新配置完成")
 
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
@@ -313,11 +295,8 @@ class SaprotClassificationModel(SaprotBaseModel):
         self._print_classification_head_weights("测试")
         
         log_dict = self.get_log_dict("test")
-        # log_dict["test_loss"] = torch.cat(self.all_gather(self.test_outputs), dim=-1).mean()
         log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
 
-        # if dist.get_rank() == 0:
-        #     print(log_dict)
         self.output_test_metrics(log_dict)
         self.log_info(log_dict)
         self.reset_metrics("test")
@@ -327,11 +306,8 @@ class SaprotClassificationModel(SaprotBaseModel):
         self._print_classification_head_weights("验证")
         
         log_dict = self.get_log_dict("valid")
-        # log_dict["valid_loss"] = torch.cat(self.all_gather(self.valid_outputs), dim=-1).mean()
         log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
 
-        # if dist.get_rank() == 0:
-        #     print(log_dict)
         self.log_info(log_dict)
         self.reset_metrics("valid")
         self.check_save_condition(log_dict["valid_acc"], mode="max")
@@ -344,7 +320,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             weight = self.classification_head.weight
             bias = self.classification_head.bias
             
-            print(f"\n=== {stage_name}阶段结束 - 分类头权重统计 (Epoch {self.current_epoch}) ===")
+            print(f"\n=== {stage_name}阶段结束 - 固定分类头权重统计 (Epoch {self.current_epoch}) ===")
             print(f"权重矩阵形状: {weight.shape}")
             print(f"权重统计: min={weight.min().item():.6f}, max={weight.max().item():.6f}, mean={weight.mean().item():.6f}, std={weight.std().item():.6f}")
             print(f"权重梯度统计: {'有梯度' if weight.grad is not None else '无梯度'}")

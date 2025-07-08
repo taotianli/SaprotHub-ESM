@@ -15,6 +15,7 @@ class SaprotClassificationDataset(LMDBDataset):
                  tokenizer: str = None,  # Keep parameter for compatibility but not used
                  use_bias_feature: bool = False,
                  max_length: int = 1024,
+                 fixed_seq_length: int = 2048,  # 添加固定序列长度参数
                  preset_label: int = None,
                  mask_struc_ratio: float = None,
                  mask_seed: int = 20000812,
@@ -25,6 +26,7 @@ class SaprotClassificationDataset(LMDBDataset):
             tokenizer: Path to tokenizer (not used for ESM3, kept for compatibility)
             use_bias_feature: If True, structure information will be used
             max_length: Max length of sequence
+            fixed_seq_length: 固定序列长度，用于截断或padding
             preset_label: If not None, all labels will be set to this value
             mask_struc_ratio: Ratio of masked structure tokens, replace structure tokens with "#"
             mask_seed: Seed for mask_struc_ratio
@@ -42,6 +44,7 @@ class SaprotClassificationDataset(LMDBDataset):
         self.esm_model = None
         
         self.max_length = max_length
+        self.fixed_seq_length = fixed_seq_length
         self.use_bias_feature = use_bias_feature
         self.preset_label = preset_label
         self.mask_struc_ratio = mask_struc_ratio
@@ -53,6 +56,26 @@ class SaprotClassificationDataset(LMDBDataset):
     def set_esm_model(self, esm_model):
         """Set the ESM3 model for encoding. This should be called from the main process."""
         self.esm_model = esm_model
+
+    def _pad_or_truncate_tensor(self, tensor, target_length):
+        """
+        将tensor截断或padding到固定长度
+        Args:
+            tensor: 输入tensor [seq_len] 
+            target_length: 目标长度
+        Returns:
+            处理后的tensor [target_length]
+        """
+        if len(tensor) > target_length:
+            # 截断
+            return tensor[:target_length]
+        elif len(tensor) < target_length:
+            # padding
+            padding_size = target_length - len(tensor)
+            padding = torch.zeros(padding_size, dtype=tensor.dtype)
+            return torch.cat([tensor, padding])
+        else:
+            return tensor
 
     def __getitem__(self, index):
         entry = json.loads(self._get(index))
@@ -95,11 +118,14 @@ class SaprotClassificationDataset(LMDBDataset):
                             
                             if torch.is_tensor(sequence_tokens):
                                 print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}")
-                                sequence_embedding = sequence_tokens
+                                # 直接在数据集中进行固定长度处理
+                                sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}")
                             else:
-                                # 如果不是tensor，转换为tensor
-                                sequence_embedding = torch.tensor(sequence_tokens)
-                                print(f"[数据集调试] 索引 {index} - 转换为tensor，形状: {sequence_embedding.shape}")
+                                # 如果不是tensor，转换为tensor并处理
+                                sequence_tokens = torch.tensor(sequence_tokens)
+                                sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}")
                         else:
                             print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
                             print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
@@ -144,31 +170,28 @@ class SaprotClassificationDataset(LMDBDataset):
         first_embedding = embeddings[0]
         
         if torch.is_tensor(first_embedding):
-            # 所有输入都是token tensor
-            print(f"[数据集调试] 批处理大小: {len(embeddings)}, token形状: {first_embedding.shape}")
+            # 所有输入都是token tensor，且应该已经是固定长度
+            print(f"[数据集调试] 批处理大小: {len(embeddings)}, 固定token长度: {first_embedding.shape}")
             
-            # 检查是否需要padding（如果长度不同）
-            max_len = max(emb.shape[0] if torch.is_tensor(emb) else 0 for emb in embeddings)
-            print(f"[数据集调试] 最大序列长度: {max_len}")
+            # 验证所有tensor都是相同长度
+            expected_length = self.fixed_seq_length
+            processed_tokens = []
             
-            # 处理padding
-            padded_tokens = []
-            for emb in embeddings:
+            for i, emb in enumerate(embeddings):
                 if torch.is_tensor(emb):
-                    if emb.shape[0] < max_len:
-                        # 需要padding，用0填充
-                        padding_size = max_len - emb.shape[0]
-                        padded_emb = torch.cat([emb, torch.zeros(padding_size, dtype=emb.dtype)])
-                        padded_tokens.append(padded_emb)
-                    else:
-                        padded_tokens.append(emb)
+                    if emb.shape[0] != expected_length:
+                        print(f"[数据集调试] ⚠️ 样本 {i} 长度不匹配: {emb.shape[0]} vs {expected_length}，重新处理")
+                        # 重新进行截断或padding
+                        emb = self._pad_or_truncate_tensor(emb, expected_length)
+                    processed_tokens.append(emb)
                 else:
-                    # 不是tensor的情况，创建零tensor
-                    padded_tokens.append(torch.zeros(max_len, dtype=torch.long))
+                    # 创建固定长度的零tensor
+                    print(f"[数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
+                    processed_tokens.append(torch.zeros(expected_length, dtype=torch.long))
             
             try:
-                stacked_tokens = torch.stack(padded_tokens)
-                print(f"[数据集调试] 堆叠后的token形状: {stacked_tokens.shape}")
+                stacked_tokens = torch.stack(processed_tokens)
+                print(f"[数据集调试] 堆叠后的固定长度token形状: {stacked_tokens.shape}")
                 inputs = {"tokens": stacked_tokens}
             except Exception as e:
                 print(f"[数据集调试] ❌ 堆叠tokens失败: {str(e)}")
