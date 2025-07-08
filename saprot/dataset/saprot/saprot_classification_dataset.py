@@ -42,6 +42,7 @@ class SaprotClassificationDataset(LMDBDataset):
         # Don't initialize ESM3 model here to avoid multiprocessing issues
         # It will be initialized in collate_fn or passed from the model
         self.esm_model = None
+        self.model_device = 'cpu'  # 默认CPU，会在set_esm_model时更新
         
         self.max_length = max_length
         self.fixed_seq_length = fixed_seq_length
@@ -56,6 +57,8 @@ class SaprotClassificationDataset(LMDBDataset):
     def set_esm_model(self, esm_model):
         """Set the ESM3 model for encoding. This should be called from the main process."""
         self.esm_model = esm_model
+        # 获取模型设备，用于确定返回tensor的设备
+        self.model_device = next(esm_model.parameters()).device if esm_model is not None else 'cpu'
 
     def _pad_or_truncate_tensor(self, tensor, target_length):
         """
@@ -70,9 +73,9 @@ class SaprotClassificationDataset(LMDBDataset):
             # 截断
             return tensor[:target_length]
         elif len(tensor) < target_length:
-            # padding
+            # padding - 确保padding tensor和原tensor在同一设备上
             padding_size = target_length - len(tensor)
-            padding = torch.zeros(padding_size, dtype=tensor.dtype)
+            padding = torch.zeros(padding_size, dtype=tensor.dtype, device=tensor.device)
             return torch.cat([tensor, padding])
         else:
             return tensor
@@ -117,15 +120,18 @@ class SaprotClassificationDataset(LMDBDataset):
                             print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
                             
                             if torch.is_tensor(sequence_tokens):
-                                print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}")
+                                print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
+                                # 将tensor移动到模型设备（通常是GPU）
+                                sequence_tokens = sequence_tokens.to(self.model_device)
                                 # 直接在数据集中进行固定长度处理
                                 sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}")
+                                print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                             else:
                                 # 如果不是tensor，转换为tensor并处理
-                                sequence_tokens = torch.tensor(sequence_tokens)
+                                # 在模型设备上创建tensor（GPU训练时直接在GPU上）
+                                sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device)
                                 sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}")
+                                print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                         else:
                             print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
                             print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
@@ -163,7 +169,7 @@ class SaprotClassificationDataset(LMDBDataset):
     def collate_fn(self, batch):
         embeddings, label_ids, coords = tuple(zip(*batch))
         
-        label_ids = torch.tensor(label_ids, dtype=torch.long)
+        label_ids = torch.tensor(label_ids, dtype=torch.long, device=self.model_device)
         labels = {"labels": label_ids}
 
         # 检查第一个元素的类型来决定如何处理
@@ -185,9 +191,10 @@ class SaprotClassificationDataset(LMDBDataset):
                         emb = self._pad_or_truncate_tensor(emb, expected_length)
                     processed_tokens.append(emb)
                 else:
-                    # 创建固定长度的零tensor
+                    # 创建固定长度的零tensor，使用与第一个tensor相同的设备
                     print(f"[数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
-                    processed_tokens.append(torch.zeros(expected_length, dtype=torch.long))
+                    device = processed_tokens[0].device if processed_tokens else self.model_device
+                    processed_tokens.append(torch.zeros(expected_length, dtype=torch.long, device=device))
             
             try:
                 stacked_tokens = torch.stack(processed_tokens)
