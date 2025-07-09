@@ -11,16 +11,17 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels: int, fixed_seq_length: int = 2048, **kwargs):
+    def __init__(self, num_labels: int, fixed_seq_length: int = 2048, config_path: str = "esm3-open", **kwargs):
         """
         Args:
             num_labels: number of labels
             fixed_seq_length: 固定序列长度，用于截断或padding
+            config_path: ESM3模型配置路径，默认为"esm3-open"
             **kwargs: other arguments for SaprotBaseModel
         """
         self.num_labels = num_labels
         self.fixed_seq_length = fixed_seq_length
-        super().__init__(task="classification", **kwargs)
+        super().__init__(task="classification", config_path=config_path, **kwargs)
         
         # 创建固定维度的分类头
         self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
