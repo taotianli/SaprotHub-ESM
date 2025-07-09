@@ -5,6 +5,8 @@ import torch.distributed as dist
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
+# 导入学习率调度器
+from ...utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
 @register_model
@@ -23,9 +25,22 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 创建固定维度的分类头
         self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
         
+        # 立即验证分类头是否被正确创建
+        print(f"🔍 立即验证分类头创建...")
+        print(f"分类头存在: {hasattr(self, 'classification_head')}")
+        print(f"分类头不为None: {self.classification_head is not None}")
+        
+        if self.classification_head is not None:
+            param_list = list(self.classification_head.parameters())
+            print(f"分类头参数数量: {len(param_list)}")
+            for i, param in enumerate(param_list):
+                print(f"  参数 {i}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
+        
         # 确保分类头参数可以训练
-        for param in self.classification_head.parameters():
+        for name, param in self.classification_head.named_parameters():
+            print(f"设置参数 {name} 的 requires_grad=True")
             param.requires_grad = True
+            print(f"验证参数 {name}: requires_grad={param.requires_grad}")
             
         print(f"创建固定分类头: {self.fixed_seq_length} -> {self.num_labels}")
         print(f"分类头参数: weight={self.classification_head.weight.shape}, bias={self.classification_head.bias.shape}")
@@ -481,12 +496,21 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 添加分类头参数
         classification_head_param_count = 0
         if hasattr(self, 'classification_head') and self.classification_head is not None:
+            print(f"🔍 检查分类头参数...")
+            print(f"分类头类型: {type(self.classification_head)}")
+            print(f"分类头设备: {next(self.classification_head.parameters()).device if list(self.classification_head.parameters()) else 'N/A'}")
+            
             for name, param in self.classification_head.named_parameters():
+                print(f"  参数: {name}, shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
                 if param.requires_grad:
                     full_name = f"classification_head.{name}"
                     all_params.append((full_name, param))
                     classification_head_param_count += 1
-                    print(f"分类头参数: {full_name}, shape={param.shape}, requires_grad={param.requires_grad}")
+                    print(f"  ✅ 添加到优化器: {full_name}")
+                else:
+                    print(f"  ❌ 跳过（requires_grad=False）: {name}")
+        else:
+            print("❌ 分类头不存在或为None")
 
         print(f"分类头可训练参数数量: {classification_head_param_count}")
         print(f"总可训练参数数量: {len(all_params)}")
@@ -519,7 +543,24 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # 创建学习率调度器
         tmp_kwargs = copy.deepcopy(self.lr_scheduler_kwargs)
-        lr_scheduler = tmp_kwargs.pop("class")
-        self.lr_scheduler = eval(lr_scheduler)(self.optimizer, **tmp_kwargs)
+        lr_scheduler_name = tmp_kwargs.pop("class")
+        
+        # 根据调度器名称选择正确的类
+        if lr_scheduler_name == "ConstantLRScheduler":
+            lr_scheduler_cls = ConstantLRScheduler
+        elif lr_scheduler_name == "CosineAnnealingLRScheduler":
+            lr_scheduler_cls = CosineAnnealingLRScheduler
+        elif lr_scheduler_name == "Esm2LRScheduler":
+            lr_scheduler_cls = Esm2LRScheduler
+        elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
+            # 如果是PyTorch内置的调度器
+            lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
+        else:
+            print(f"⚠️  未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
+            lr_scheduler_cls = ConstantLRScheduler
+            
+        self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
         
         print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
+        print(f"✅ 学习率调度器: {lr_scheduler_name}")
+        print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")

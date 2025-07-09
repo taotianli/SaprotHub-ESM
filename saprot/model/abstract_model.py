@@ -281,13 +281,33 @@ class AbstractModel(pl.LightningModule):
             basename = os.path.basename(from_checkpoint)
             from_checkpoint = os.path.join(from_checkpoint, f"{basename}.pt")
 
-        state_dict = torch.load(from_checkpoint, map_location=self.device)
-        self.load_weights(self.model, state_dict["model"])
-        
-        if self.load_prev_scheduler:
-            state_dict.pop("model")
-            self.prev_schechuler = state_dict
-        
+        # 检查检查点文件是否存在
+        if not os.path.exists(from_checkpoint):
+            print(f"⚠️  警告: 检查点文件不存在: {from_checkpoint}")
+            print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+            return
+
+        try:
+            print(f"📂 正在加载检查点: {from_checkpoint}")
+            state_dict = torch.load(from_checkpoint, map_location=self.device)
+            
+            if "model" not in state_dict:
+                print(f"❌ 检查点文件格式错误: 缺少'model'键")
+                print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+                return
+                
+            self.load_weights(self.model, state_dict["model"])
+            print(f"✅ 检查点加载成功")
+            
+            if self.load_prev_scheduler:
+                state_dict.pop("model")
+                self.prev_schechuler = state_dict
+                print(f"✅ 调度器状态加载成功")
+                
+        except Exception as e:
+            print(f"❌ 加载检查点时出错: {str(e)}")
+            print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+    
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
         Save model to save_path
@@ -297,23 +317,27 @@ class AbstractModel(pl.LightningModule):
             save_weights_only: Whether only save model weights
         """
         try:
-            dir = os.path.dirname(save_path)
-            os.makedirs(dir, exist_ok=True)
+            # 确保目录路径存在
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"📁 创建/确认保存目录: {dir_path}")
             
             # Test if directory is writable
-            test_file = os.path.join(dir, '.write_test')
+            test_file = os.path.join(dir_path if dir_path else '.', '.write_test')
             try:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
+                print(f"✅ 目录可写: {dir_path if dir_path else '当前目录'}")
             except (OSError, IOError) as e:
                 # If the original path is not writable, use a fallback path
-                print(f"Warning: Cannot write to {dir}, using fallback path")
+                print(f"⚠️  警告: 无法写入目录 {dir_path}, 使用备用路径")
                 fallback_dir = os.path.join(os.getcwd(), 'model_checkpoints')
                 os.makedirs(fallback_dir, exist_ok=True)
                 filename = os.path.basename(save_path)
                 save_path = os.path.join(fallback_dir, filename)
-                print(f"Saving to fallback path: {save_path}")
+                print(f"💾 保存到备用路径: {save_path}")
             
             state_dict = {} if save_info is None else save_info
             state_dict["model"] = self.model.state_dict()
@@ -333,19 +357,19 @@ class AbstractModel(pl.LightningModule):
                     state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
 
             torch.save(state_dict, save_path)
-            print(f"Model checkpoint saved to: {save_path}")
+            print(f"💾 模型检查点已保存到: {save_path}")
             
         except Exception as e:
-            print(f"Error saving checkpoint: {e}")
+            print(f"❌ 保存检查点时出错: {e}")
             # Try to save to current directory as last resort
             try:
                 fallback_path = os.path.join(os.getcwd(), 'emergency_checkpoint.pt')
                 state_dict = {} if save_info is None else save_info
                 state_dict["model"] = self.model.state_dict()
                 torch.save(state_dict, fallback_path)
-                print(f"Emergency checkpoint saved to: {fallback_path}")
+                print(f"🚨 紧急检查点已保存到: {fallback_path}")
             except Exception as e2:
-                print(f"Failed to save emergency checkpoint: {e2}")
+                print(f"❌ 紧急保存也失败: {e2}")
                 raise e
 
     def check_save_condition(self, now_value: float, mode: str, save_info: dict = None) -> None:
