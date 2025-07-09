@@ -178,9 +178,18 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             else:
                 return features
         elif features.dim() == 3:
-            # [batch_size, seq_len, hidden_dim] 的情况，先平均池化
-            features = features.mean(dim=2)  # [batch_size, seq_len]
-            return self._pad_or_truncate_features(features, target_length)
+            # [batch_size, seq_len, hidden_dim] 的情况
+            batch_size, seq_len, hidden_dim = features.shape
+            if seq_len > target_length:
+                # 截断
+                return features[:, :target_length, :]
+            elif seq_len < target_length:
+                # padding
+                padding_size = target_length - seq_len
+                padding = torch.zeros(batch_size, padding_size, hidden_dim, device=features.device, dtype=features.dtype)
+                return torch.cat([features, padding], dim=1)
+            else:
+                return features
         else:
             raise ValueError(f"不支持的特征维度: {features.shape}")
 
@@ -208,6 +217,12 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
+        # 获取ESM3模型的隐藏维度
+        if hasattr(self.model, 'embed_tokens'):
+            hidden_size = self.model.embed_tokens.weight.shape[1]
+        else:
+            hidden_size = 2560  # ESM3的标准隐藏维度
+        
         # 优先处理tokens
         if "tokens" in inputs_1 and "tokens" in inputs_2:
             tokens_1 = inputs_1["tokens"].to(device=device)
@@ -219,19 +234,27 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 tokens_2_float = tokens_2.float().to(dtype=model_dtype)
                 
                 if tokens_1_float.dim() == 2 and tokens_2_float.dim() == 2:
+                    # 将tokens转换为嵌入维度
+                    features_1 = tokens_1_float.unsqueeze(-1).expand(-1, -1, hidden_size)
+                    features_2 = tokens_2_float.unsqueeze(-1).expand(-1, -1, hidden_size)
+                    
                     # 截断或padding到固定长度
-                    features_1 = self._pad_or_truncate_features(tokens_1_float, self.fixed_seq_length)
-                    features_2 = self._pad_or_truncate_features(tokens_2_float, self.fixed_seq_length)
+                    features_1 = self._pad_or_truncate_features(features_1, self.fixed_seq_length)
+                    features_2 = self._pad_or_truncate_features(features_2, self.fixed_seq_length)
+                    
+                    # 平均池化得到序列表示
+                    features_1 = features_1.mean(dim=1)  # [batch_size, hidden_size]
+                    features_2 = features_2.mean(dim=1)  # [batch_size, hidden_size]
                     
                     # 连接两个序列的特征
-                    stacked_features = torch.cat([features_1, features_2], dim=1)
+                    stacked_features = torch.cat([features_1, features_2], dim=1)  # [batch_size, hidden_size*2]
                 else:
                     batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
-                    stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
+                    stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
                 
             except Exception as e:
                 batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
-                stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
@@ -240,13 +263,11 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             
             # 如果是高维嵌入，需要转换为固定长度
             if embeddings_1.dim() == 3:
-                embeddings_1 = embeddings_1.mean(dim=2)
+                embeddings_1 = embeddings_1.mean(dim=1)  # [batch_size, hidden_size]
             if embeddings_2.dim() == 3:
-                embeddings_2 = embeddings_2.mean(dim=2)
+                embeddings_2 = embeddings_2.mean(dim=1)  # [batch_size, hidden_size]
                 
-            features_1 = self._pad_or_truncate_features(embeddings_1, self.fixed_seq_length)
-            features_2 = self._pad_or_truncate_features(embeddings_2, self.fixed_seq_length)
-            stacked_features = torch.cat([features_1, features_2], dim=1)
+            stacked_features = torch.cat([embeddings_1, embeddings_2], dim=1)  # [batch_size, hidden_size*2]
         
         elif "sequences" in inputs_1 and "sequences" in inputs_2:
             sequences_1 = inputs_1["sequences"]
@@ -276,51 +297,56 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                         seq_tokens_2 = getattr(encoded_protein_2, 'sequence')
                         
                         if torch.is_tensor(seq_tokens_1) and torch.is_tensor(seq_tokens_2):
-                            # 直接使用tokens作为特征
-                            seq_feature_1 = seq_tokens_1.float()
-                            seq_feature_2 = seq_tokens_2.float()
+                            # 将tokens转换为嵌入维度
+                            seq_feature_1 = seq_tokens_1.float().unsqueeze(-1).expand(-1, hidden_size)
+                            seq_feature_2 = seq_tokens_2.float().unsqueeze(-1).expand(-1, hidden_size)
                             
                             # 截断或padding到固定长度
                             if len(seq_feature_1) > self.fixed_seq_length:
-                                seq_feature_1 = seq_feature_1[:self.fixed_seq_length]
+                                seq_feature_1 = seq_feature_1[:self.fixed_seq_length, :]
                             elif len(seq_feature_1) < self.fixed_seq_length:
                                 padding_size = self.fixed_seq_length - len(seq_feature_1)
-                                padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
                                 seq_feature_1 = torch.cat([seq_feature_1, padding])
                             
                             if len(seq_feature_2) > self.fixed_seq_length:
-                                seq_feature_2 = seq_feature_2[:self.fixed_seq_length]
+                                seq_feature_2 = seq_feature_2[:self.fixed_seq_length, :]
                             elif len(seq_feature_2) < self.fixed_seq_length:
                                 padding_size = self.fixed_seq_length - len(seq_feature_2)
-                                padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
                                 seq_feature_2 = torch.cat([seq_feature_2, padding])
+                            
+                            # 平均池化得到序列表示
+                            seq_feature_1 = seq_feature_1.mean(dim=0)  # [hidden_size]
+                            seq_feature_2 = seq_feature_2.mean(dim=0)  # [hidden_size]
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
                         else:
                             # 创建零向量
-                            feature_1 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                            feature_2 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                            feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                             features_1.append(feature_1)
                             features_2.append(feature_2)
                     else:
                         # 创建零向量
-                        feature_1 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                        feature_2 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                        feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                         features_1.append(feature_1)
                         features_2.append(feature_2)
                 except Exception as e:
-                    feature_1 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                    feature_2 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                    feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                    feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                     features_1.append(feature_1)
                     features_2.append(feature_2)
             
             if features_1 and features_2:
-                stacked_features_1 = torch.stack(features_1)
-                stacked_features_2 = torch.stack(features_2)
-                stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)
+                stacked_features_1 = torch.stack(features_1)  # [batch_size, hidden_size]
+                stacked_features_2 = torch.stack(features_2)  # [batch_size, hidden_size]
+                stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)  # [batch_size, hidden_size*2]
             else:
-                stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
+                batch_size = 1
+                stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
         
         # 保留原有的ESM和ProtBERT逻辑作为兜底
         elif "inputs" in inputs_1 and "inputs" in inputs_2:
@@ -336,11 +362,11 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 hidden_1 = backbone(**model_inputs_1)[0][:, 0, :]
                 hidden_2 = backbone(**model_inputs_2)[0][:, 0, :]
             
-            hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
-            return self.model.classifier(hidden_concat).squeeze(dim=-1)
+            stacked_features = torch.cat([hidden_1, hidden_2], dim=-1)
         
         else:
-            stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
+            batch_size = 1
+            stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
