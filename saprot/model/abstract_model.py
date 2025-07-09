@@ -401,18 +401,18 @@ class AbstractModel(pl.LightningModule):
             if not save_path.endswith('.pt'):
                 save_path = save_path + '.pt'
             
-            print(f"🔍 检查保存条件，目标路径: {save_path}")
+            # print(f"🔍 检查保存条件，目标路径: {save_path}")
             
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                print(f"📁 创建保存目录: {dir_path}")
+                # print(f"📁 创建保存目录: {dir_path}")
             
             # Check whether to save model
             best_value = getattr(self, f"best_value", None)
             if best_value is not None:
                 if mode == "min" and now_value >= best_value or mode == "max" and now_value <= best_value:
-                    print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
+                    # print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
                     return
                 
             setattr(self, "best_value", now_value)
@@ -506,3 +506,4 @@ class AbstractModel(pl.LightningModule):
                                  "interval": "step",
                                  "frequency": 1}
                 }
+

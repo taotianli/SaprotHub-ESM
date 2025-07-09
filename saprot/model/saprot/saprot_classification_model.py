@@ -99,7 +99,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             # 设置ESM3模型
             for stage, dataset in datasets:
                 if dataset is not None and hasattr(dataset, 'set_esm_model'):
-                    print(f"设置ESM3模型到{stage}数据集: {type(dataset).__name__}")
+                    # print(f"设置ESM3模型到{stage}数据集: {type(dataset).__name__}")
                     dataset.set_esm_model(self.model)
                     
             # 另外检查dataloader中的数据集
@@ -137,7 +137,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             for stage, dataloader in dataloaders:
                 if dataloader is not None:
                     if hasattr(dataloader, 'dataset') and hasattr(dataloader.dataset, 'set_esm_model'):
-                        print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
+                        # print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
                         dataloader.dataset.set_esm_model(self.model)
 
     def _pad_or_truncate_features(self, features, target_length):
@@ -236,8 +236,14 @@ class SaprotClassificationModel(SaprotBaseModel):
             for i, seq in enumerate(sequences):
                 try:
                     protein = ESMProtein(sequence=seq)
-                    with torch.no_grad():
+                    # 关键修复：确保ESM3编码过程中梯度不被截断
+                    if self.training:
+                        # 训练模式下，不使用no_grad，保持梯度流动
                         encoded_protein = self.model.encode(protein)
+                    else:
+                        # 推理模式下，使用no_grad节省内存
+                        with torch.no_grad():
+                            encoded_protein = self.model.encode(protein)
                     
                     # Extract sequence tokens
                     if hasattr(encoded_protein, 'sequence'):
@@ -279,6 +285,10 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
+        
+        # 确保stacked_features保持梯度
+        if self.training:
+            stacked_features.requires_grad_(True)
         
         # print(f"[模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
 
@@ -350,42 +360,42 @@ class SaprotClassificationModel(SaprotBaseModel):
             weight = self.classification_head.weight
             bias = self.classification_head.bias
             
-            print(f"\n=== {stage_name}阶段结束 - 固定分类头权重统计 (Epoch {self.current_epoch}) ===")
-            print(f"权重矩阵形状: {weight.shape}")
-            print(f"权重统计: min={weight.min().item():.6f}, max={weight.max().item():.6f}, mean={weight.mean().item():.6f}, std={weight.std().item():.6f}")
-            print(f"权重梯度统计: {'有梯度' if weight.grad is not None else '无梯度'}")
-            if weight.grad is not None:
-                print(f"梯度统计: min={weight.grad.min().item():.6f}, max={weight.grad.max().item():.6f}, mean={weight.grad.mean().item():.6f}")
-                print(f"梯度范数: {weight.grad.norm().item():.6f}")
-            
-            if bias is not None:
-                print(f"偏置形状: {bias.shape}")
-                print(f"偏置统计: min={bias.min().item():.6f}, max={bias.max().item():.6f}, mean={bias.mean().item():.6f}")
-                print(f"偏置梯度统计: {'有梯度' if bias.grad is not None else '无梯度'}")
-                if bias.grad is not None:
-                    print(f"偏置梯度统计: min={bias.grad.min().item():.6f}, max={bias.grad.max().item():.6f}, mean={bias.grad.mean().item():.6f}")
-                    print(f"偏置梯度范数: {bias.grad.norm().item():.6f}")
+            # print(f"\n=== {stage_name}阶段结束 - 固定分类头权重统计 (Epoch {self.current_epoch}) ===")
+            # print(f"权重矩阵形状: {weight.shape}")
+            # print(f"权重统计: min={weight.min().item():.6f}, max={weight.max().item():.6f}, mean={weight.mean().item():.6f}, std={weight.std().item():.6f}")
+            # print(f"权重梯度统计: {'有梯度' if weight.grad is not None else '无梯度'}")
+            # if weight.grad is not None:
+            #     print(f"梯度统计: min={weight.grad.min().item():.6f}, max={weight.grad.max().item():.6f}, mean={weight.grad.mean().item():.6f}")
+            #     print(f"梯度范数: {weight.grad.norm().item():.6f}")
+            # 
+            # if bias is not None:
+            #     print(f"偏置形状: {bias.shape}")
+            #     print(f"偏置统计: min={bias.min().item():.6f}, max={bias.max().item():.6f}, mean={bias.mean().item():.6f}")
+            #     print(f"偏置梯度统计: {'有梯度' if bias.grad is not None else '无梯度'}")
+            #     if bias.grad is not None:
+            #         print(f"偏置梯度统计: min={bias.grad.min().item():.6f}, max={bias.grad.max().item():.6f}, mean={bias.grad.mean().item():.6f}")
+            #         print(f"偏置梯度范数: {bias.grad.norm().item():.6f}")
             
             # 检查权重是否在训练中发生变化
             if not hasattr(self, '_prev_weights'):
                 self._prev_weights = weight.clone().detach()
-                print("首次记录权重")
+                # print("首次记录权重")
             else:
                 weight_diff = torch.abs(weight - self._prev_weights).mean().item()
                 weight_max_diff = torch.abs(weight - self._prev_weights).max().item()
-                print(f"权重平均变化量: {weight_diff:.8f}")
-                print(f"权重最大变化量: {weight_max_diff:.8f}")
+                # print(f"权重平均变化量: {weight_diff:.8f}")
+                # print(f"权重最大变化量: {weight_max_diff:.8f}")
                 if weight_diff < 1e-8:
                     print("⚠️  警告: 权重几乎没有变化，可能没有在训练!")
                     # 进一步检查优化器状态
                     self._check_optimizer_state()
-                else:
-                    print("✅ 权重正在更新")
+                # else:
+                #     print("✅ 权重正在更新")
                 self._prev_weights = weight.clone().detach()
             
-            print("=" * 60 + "\n")
-        else:
-            print(f"\n⚠️  {stage_name}阶段结束 - 分类头尚未创建 (Epoch {self.current_epoch})\n")
+            # print("=" * 60 + "\n")
+        # else:
+        #     print(f"\n⚠️  {stage_name}阶段结束 - 分类头尚未创建 (Epoch {self.current_epoch})\n")
 
     def _check_optimizer_state(self):
         """检查优化器状态以诊断训练问题"""
@@ -570,10 +580,10 @@ class SaprotClassificationModel(SaprotBaseModel):
         inputs, labels = batch
         
         # 在前向传播前检查参数梯度状态
-        if batch_idx == 0:  # 只在第一个batch时打印
-            print(f"\n🔍 训练步骤 {batch_idx} 开始前的参数状态:")
-            for name, param in self.classification_head.named_parameters():
-                print(f"  {name}: requires_grad={param.requires_grad}, grad={'有' if param.grad is not None else '无'}")
+        # if batch_idx == 0:  # 只在第一个batch时打印
+        #     print(f"\n🔍 训练步骤 {batch_idx} 开始前的参数状态:")
+        #     for name, param in self.classification_head.named_parameters():
+        #         print(f"  {name}: requires_grad={param.requires_grad}, grad={'有' if param.grad is not None else '无'}")
         
         # 前向传播
         outputs = self(**inputs)
@@ -581,13 +591,13 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 计算损失
         loss = self.loss_func('train', outputs, labels)
         
-        print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
+        # print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
         
         # 在返回loss之前检查梯度（PyTorch Lightning会自动调用backward）
-        if batch_idx == 0:  # 只在第一个batch时打印
-            print(f"🔍 损失计算完成，准备反向传播...")
-            print(f"  Loss requires_grad: {loss.requires_grad}")
-            print(f"  Loss grad_fn: {loss.grad_fn}")
+        # if batch_idx == 0:  # 只在第一个batch时打印
+        #     print(f"🔍 损失计算完成，准备反向传播...")
+        #     print(f"  Loss requires_grad: {loss.requires_grad}")
+        #     print(f"  Loss grad_fn: {loss.grad_fn}")
         
         self.log("loss", loss, prog_bar=True)
         return loss
@@ -595,24 +605,30 @@ class SaprotClassificationModel(SaprotBaseModel):
     def on_before_optimizer_step(self, optimizer):
         """在优化器步骤之前检查梯度"""
         # 检查分类头梯度
-        total_grad_norm = 0.0
-        param_count = 0
-        
-        print(f"\n🔍 优化器步骤前的梯度检查:")
-        for name, param in self.classification_head.named_parameters():
-            if param.grad is not None:
-                grad_norm = param.grad.norm().item()
-                total_grad_norm += grad_norm ** 2
-                param_count += 1
-                print(f"  {name}: grad_norm={grad_norm:.6f}")
-            else:
-                print(f"  {name}: ❌ 无梯度!")
-        
-        if param_count > 0:
-            total_grad_norm = total_grad_norm ** 0.5
-            print(f"  分类头总梯度范数: {total_grad_norm:.6f}")
-        else:
-            print(f"  ❌ 分类头没有任何参数有梯度!")
+        # total_grad_norm = 0.0
+        # param_count = 0
+        # 
+        # print(f"\n🔍 优化器步骤前的梯度检查:")
+        # for name, param in self.classification_head.named_parameters():
+        #     if param.grad is not None:
+        #         grad_norm = param.grad.norm().item()
+        #         total_grad_norm += grad_norm ** 2
+        #         param_count += 1
+        #         print(f"  {name}: grad_norm={grad_norm:.6f}")
+        #     else:
+        #         print(f"  {name}: ❌ 无梯度!")
+        # 
+        # if param_count > 0:
+        #     total_grad_norm = total_grad_norm ** 0.5
+        #     print(f"  分类头总梯度范数: {total_grad_norm:.6f}")
+        # else:
+        #     print(f"  ❌ 分类头没有任何参数有梯度!")
         
         # 调用父类方法
         super().on_before_optimizer_step(optimizer)
+        
+    def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
+        """重写保存检查点方法，保存完整模型"""
+        # 调用父类的保存方法
+        super().save_checkpoint(save_path, save_info, save_weights_only)
+        print(f"✅ 模型检查点已保存，无需创建adapter配置文件")
