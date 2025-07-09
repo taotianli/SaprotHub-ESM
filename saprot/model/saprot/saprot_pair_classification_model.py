@@ -11,13 +11,30 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotPairClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels, fixed_seq_length: int = 2048, **kwargs):
+    def __init__(self, num_labels, fixed_seq_length: int = 2048, optimizer_kwargs=None, lr_scheduler_kwargs=None, **kwargs):
         """
         Args:
             num_labels: number of labels
             fixed_seq_length: 固定序列长度，用于截断或padding
+            optimizer_kwargs: 优化器参数
+            lr_scheduler_kwargs: 学习率调度器参数
             **kwargs: other arguments for SaprotBaseModel
         """
+        # 设置优化器和学习率调度器参数
+        self.optimizer_kwargs = optimizer_kwargs or {
+            "class": "AdamW",
+            "weight_decay": 0.01,
+            "betas": (0.9, 0.999),
+            "eps": 1e-8
+        }
+        
+        self.lr_scheduler_kwargs = lr_scheduler_kwargs or {
+            "class": "ConstantLRScheduler",
+            "init_lr": 1e-4,
+            "num_warmup_steps": 0,
+            "num_training_steps": 1000
+        }
+        
         self.num_labels = num_labels
         self.fixed_seq_length = fixed_seq_length
         super().__init__(task="base", **kwargs)
