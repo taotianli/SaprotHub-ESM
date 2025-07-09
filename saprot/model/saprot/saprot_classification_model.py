@@ -5,8 +5,6 @@ import torch.distributed as dist
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
-# 导入学习率调度器 - 修复导入路径
-from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
 @register_model
@@ -25,22 +23,9 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 创建固定维度的分类头
         self.classification_head = torch.nn.Linear(self.fixed_seq_length, self.num_labels)
         
-        # 立即验证分类头是否被正确创建
-        print(f"🔍 立即验证分类头创建...")
-        print(f"分类头存在: {hasattr(self, 'classification_head')}")
-        print(f"分类头不为None: {self.classification_head is not None}")
-        
-        if self.classification_head is not None:
-            param_list = list(self.classification_head.parameters())
-            print(f"分类头参数数量: {len(param_list)}")
-            for i, param in enumerate(param_list):
-                print(f"  参数 {i}: shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
-        
         # 确保分类头参数可以训练
-        for name, param in self.classification_head.named_parameters():
-            print(f"设置参数 {name} 的 requires_grad=True")
+        for param in self.classification_head.parameters():
             param.requires_grad = True
-            print(f"验证参数 {name}: requires_grad={param.requires_grad}")
             
         print(f"创建固定分类头: {self.fixed_seq_length} -> {self.num_labels}")
         print(f"分类头参数: weight={self.classification_head.weight.shape}, bias={self.classification_head.bias.shape}")
@@ -496,21 +481,12 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 添加分类头参数
         classification_head_param_count = 0
         if hasattr(self, 'classification_head') and self.classification_head is not None:
-            print(f"🔍 检查分类头参数...")
-            print(f"分类头类型: {type(self.classification_head)}")
-            print(f"分类头设备: {next(self.classification_head.parameters()).device if list(self.classification_head.parameters()) else 'N/A'}")
-            
             for name, param in self.classification_head.named_parameters():
-                print(f"  参数: {name}, shape={param.shape}, requires_grad={param.requires_grad}, device={param.device}")
                 if param.requires_grad:
                     full_name = f"classification_head.{name}"
                     all_params.append((full_name, param))
                     classification_head_param_count += 1
-                    print(f"  ✅ 添加到优化器: {full_name}")
-                else:
-                    print(f"  ❌ 跳过（requires_grad=False）: {name}")
-        else:
-            print("❌ 分类头不存在或为None")
+                    print(f"分类头参数: {full_name}, shape={param.shape}, requires_grad={param.requires_grad}")
 
         print(f"分类头可训练参数数量: {classification_head_param_count}")
         print(f"总可训练参数数量: {len(all_params)}")
@@ -543,76 +519,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # 创建学习率调度器
         tmp_kwargs = copy.deepcopy(self.lr_scheduler_kwargs)
-        lr_scheduler_name = tmp_kwargs.pop("class")
-        
-        # 根据调度器名称选择正确的类
-        if lr_scheduler_name == "ConstantLRScheduler":
-            lr_scheduler_cls = ConstantLRScheduler
-        elif lr_scheduler_name == "CosineAnnealingLRScheduler":
-            lr_scheduler_cls = CosineAnnealingLRScheduler
-        elif lr_scheduler_name == "Esm2LRScheduler":
-            lr_scheduler_cls = Esm2LRScheduler
-        elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
-            # 如果是PyTorch内置的调度器
-            lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
-        else:
-            print(f"⚠️  未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
-            lr_scheduler_cls = ConstantLRScheduler
-            
-        self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
+        lr_scheduler = tmp_kwargs.pop("class")
+        self.lr_scheduler = eval(lr_scheduler)(self.optimizer, **tmp_kwargs)
         
         print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
-        print(f"✅ 学习率调度器: {lr_scheduler_name}")
-        print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
-
-    def training_step(self, batch, batch_idx):
-        """重写训练步骤，添加详细的梯度监控"""
-        inputs, labels = batch
-        
-        # 在前向传播前检查参数梯度状态
-        if batch_idx == 0:  # 只在第一个batch时打印
-            print(f"\n🔍 训练步骤 {batch_idx} 开始前的参数状态:")
-            for name, param in self.classification_head.named_parameters():
-                print(f"  {name}: requires_grad={param.requires_grad}, grad={'有' if param.grad is not None else '无'}")
-        
-        # 前向传播
-        outputs = self(**inputs)
-        
-        # 计算损失
-        loss = self.loss_func('train', outputs, labels)
-        
-        print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
-        
-        # 在返回loss之前检查梯度（PyTorch Lightning会自动调用backward）
-        if batch_idx == 0:  # 只在第一个batch时打印
-            print(f"🔍 损失计算完成，准备反向传播...")
-            print(f"  Loss requires_grad: {loss.requires_grad}")
-            print(f"  Loss grad_fn: {loss.grad_fn}")
-        
-        self.log("loss", loss, prog_bar=True)
-        return loss
-
-    def on_before_optimizer_step(self, optimizer):
-        """在优化器步骤之前检查梯度"""
-        # 检查分类头梯度
-        total_grad_norm = 0.0
-        param_count = 0
-        
-        print(f"\n🔍 优化器步骤前的梯度检查:")
-        for name, param in self.classification_head.named_parameters():
-            if param.grad is not None:
-                grad_norm = param.grad.norm().item()
-                total_grad_norm += grad_norm ** 2
-                param_count += 1
-                print(f"  {name}: grad_norm={grad_norm:.6f}")
-            else:
-                print(f"  {name}: ❌ 无梯度!")
-        
-        if param_count > 0:
-            total_grad_norm = total_grad_norm ** 0.5
-            print(f"  分类头总梯度范数: {total_grad_norm:.6f}")
-        else:
-            print(f"  ❌ 分类头没有任何参数有梯度!")
-        
-        # 调用父类方法
-        super().on_before_optimizer_step(optimizer)
