@@ -199,7 +199,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         
         # 优先处理tokens
         if "tokens" in inputs_1 and "tokens" in inputs_2:
-            # print(f"[pair回归模型调试] 使用tokens，形状: {inputs_1['tokens'].shape}, {inputs_2['tokens'].shape}")
             tokens_1 = inputs_1["tokens"].to(device=device)
             tokens_2 = inputs_2["tokens"].to(device=device)
             
@@ -215,21 +214,16 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                     
                     # 连接两个序列的特征
                     stacked_features = torch.cat([features_1, features_2], dim=1)
-                    # print(f"[pair回归模型调试] 连接后特征形状: {stacked_features.shape}")
-                    
                 else:
-                    # print(f"[pair回归模型调试] ❌ tokens维度不符合预期")
                     batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                     stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
                 
             except Exception as e:
-                # print(f"[pair回归模型调试] tokens处理失败: {str(e)}")
                 batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
-            # print(f"[pair回归模型调试] 使用预编码的嵌入")
             embeddings_1 = inputs_1["embeddings"].to(device=device, dtype=model_dtype)
             embeddings_2 = inputs_2["embeddings"].to(device=device, dtype=model_dtype)
             
@@ -244,7 +238,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             stacked_features = torch.cat([features_1, features_2], dim=1)
         
         elif "sequences" in inputs_1 and "sequences" in inputs_2:
-            # print(f"[pair回归模型调试] 处理原始序列对")
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
@@ -306,7 +299,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                         features_1.append(feature_1)
                         features_2.append(feature_2)
                 except Exception as e:
-                    # print(f"[pair回归模型调试] 序列对 {i} 编码出错: {str(e)}")
                     feature_1 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     feature_2 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     features_1.append(feature_1)
@@ -318,7 +310,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)
             else:
                 stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
-
+        
         # 保留原有的ESM和ProtBERT逻辑作为兜底
         elif "inputs" in inputs_1 and "inputs" in inputs_2:
             model_inputs_1 = inputs_1["inputs"]
@@ -327,30 +319,26 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             if self.freeze_backbone:
                 hidden_1 = torch.stack(self.get_hidden_states_from_dict(model_inputs_1, reduction="mean"))
                 hidden_2 = torch.stack(self.get_hidden_states_from_dict(model_inputs_2, reduction="mean"))
-        else:
-            # If "esm" is not in the model, use "bert" as the backbone
-            backbone = self.model.esm if hasattr(self.model, "esm") else self.model.bert
+            else:
+                # If "esm" is not in the model, use "bert" as the backbone
+                backbone = self.model.esm if hasattr(self.model, "esm") else self.model.bert
                 hidden_1 = backbone(**model_inputs_1)[0][:, 0, :]
                 hidden_2 = backbone(**model_inputs_2)[0][:, 0, :]
-
-        hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
-        return self.model.classifier(hidden_concat).squeeze(dim=-1)
+            
+            hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
+            return self.model.classifier(hidden_concat).squeeze(dim=-1)
         
         else:
-            # print(f"[pair回归模型调试] ❌ 输入中没有找到合适的格式")
             stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # print(f"[pair回归模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length * 2})")
-
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
         # Forward pass
         logits = self.regression_head(stacked_features).squeeze(dim=-1)
-        # print(f"[pair回归模型调试] 回归输出形状: {logits.shape}")
         
         return logits
 
