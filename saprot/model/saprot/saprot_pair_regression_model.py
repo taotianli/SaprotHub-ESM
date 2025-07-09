@@ -41,27 +41,38 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 回归头将在initialize_model中创建
         # print(f"回归头将在initialize_model中创建")
         
-        # 创建固定维度的回归头
-        self.regression_head = torch.nn.Linear(self.fixed_seq_length * 2, 1)  # *2 for pair
-        
-        # print(f"创建固定pair回归头: {self.fixed_seq_length * 2} -> 1")
-        # print(f"回归头参数: weight={self.regression_head.weight.shape}, bias={self.regression_head.bias.shape}")
-        
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
 
     def initialize_model(self):
+        """初始化ESM3模型和回归头"""
         super().initialize_model()
-
-        # 保留原有的classifier作为兜底
-        hidden_size = self.model.config.hidden_size * 2
-        classifier = torch.nn.Sequential(
-            Linear(hidden_size, hidden_size),
-            ReLU(),
-            Linear(hidden_size, 1)
+        
+        # 获取ESM3模型的隐藏维度
+        # ESM3模型没有config属性，需要从模型结构中获取hidden_size
+        if hasattr(self.model, 'embed_tokens'):
+            hidden_size = self.model.embed_tokens.weight.shape[1]
+        else:
+            # 如果无法获取，使用默认值2560（ESM3的标准隐藏维度）
+            hidden_size = 2560
+        
+        # 对于pair回归，我们需要两倍的hidden_size，因为要处理两个序列
+        hidden_size = hidden_size * 2
+        
+        # 创建回归头
+        self.regression_head = torch.nn.Sequential(
+            torch.nn.Linear(hidden_size, hidden_size // 2),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(hidden_size // 2, 1)
         )
-
-        setattr(self.model, "classifier", classifier)
+        
+        # 确保回归头参数可训练
+        for param in self.regression_head.parameters():
+            param.requires_grad = True
+        
+        # 重新初始化优化器以包含回归头参数
+        self.init_optimizers()
 
     def initialize_metrics(self, stage):
         return {f"{stage}_loss": torchmetrics.MeanSquaredError(),
