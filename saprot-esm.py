@@ -2961,6 +2961,44 @@ def choose_training_task():
     from saprot.scripts.training import finetune
     finetune(config)
 
+    ####################################################################
+    #            生成adapter_config.json（为了兼容性）              #
+    ####################################################################
+    # 由于禁用了LoRA，训练过程不会自动生成adapter_config.json
+    # 但后续的README生成需要这个文件，所以我们手动创建一个兼容的版本
+    adapter_config_path = Path(config.model.save_path) / "adapter_config.json"
+    if not adapter_config_path.exists():
+        # 创建一个兼容的adapter_config.json文件
+        adapter_config = {
+            "base_model_name_or_path": base_model,
+            "task_type": "ESM3_CLASSIFICATION",  # ESM3特定的任务类型
+            "r": r,
+            "lora_dropout": lora_dropout,
+            "lora_alpha": lora_alpha,
+            "target_modules": ["attention", "mlp"],  # ESM3相关的模块
+            "modules_to_save": ["classifier"],
+            "inference_mode": False,
+            "peft_type": "ESM3_FINETUNING",  # 标识为ESM3微调而非LoRA
+            "auto_mapping": None,
+            "bias": "none",
+            "fan_in_fan_out": False,
+            "init_lora_weights": True,
+            "layers_pattern": None,
+            "layers_to_transform": None,
+            "loftq_config": None,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "r": r,
+            "rank_pattern": None,
+            "revision": None,
+            "target_modules": ["attention", "mlp"],
+            "use_dora": False,
+            "use_rslora": False
+        }
+        
+        with open(adapter_config_path, 'w') as f:
+            json.dump(adapter_config, f, indent=2)
+        print(f"Created adapter_config.json for ESM3 model at {adapter_config_path}")
 
     ####################################################################
     #            Modify README              #
@@ -2971,7 +3009,47 @@ def choose_training_task():
     with open(f'{config.model.save_path}/adapter_config.json', 'r') as f:
       lora_config = json.load(f)
 
-    readme = f'''
+    # 检查是否为ESM3模型
+    is_esm3_model = base_model == "esm3-open" or lora_config.get('task_type') == 'ESM3_CLASSIFICATION'
+    
+    if is_esm3_model:
+        readme = f'''
+---
+
+base_model: {base_model} \n
+library_name: esm3
+
+---
+\n
+
+# Model Card for {name}
+{description}
+
+## Task type
+{original_task_type}
+
+## Model input type
+{metadata["training_data_type"]} Sequence
+
+## ESM3 Model config
+
+- **base_model:** {base_model}
+- **model_type:** ESM3 Fine-tuning
+- **task_type:** {original_task_type}
+
+## Training config
+
+- **optimizer:**
+  - **class:** AdamW
+  - **betas:** (0.9, 0.98)
+  - **weight_decay:** 0.01
+- **learning rate:** {config.model.lr_scheduler_kwargs.init_lr}
+- **epoch:** {config.Trainer.max_epochs}
+- **batch size:** {config.dataset.dataloader_kwargs.batch_size * config.Trainer.accumulate_grad_batches}
+- **precision:** 16-mixed \n
+'''
+    else:
+        readme = f'''
 ---
 
 base_model: {base_model} \n
@@ -3020,8 +3098,37 @@ library_name: peft
     print(Style.RESET_ALL)
 
     adapter_zip = Path(config.model.save_path) / f"{model_name}.zip"
-    cmd = f"cd {config.model.save_path} && zip -r {adapter_zip} 'adapter_config.json' 'adapter_model.safetensors' 'README.md' 'metadata.json'"
-    os.system(cmd)
+    
+    # 检查存在哪些文件，并相应地打包
+    save_path = Path(config.model.save_path)
+    files_to_zip = []
+    
+    # 必须存在的文件
+    if (save_path / 'adapter_config.json').exists():
+        files_to_zip.append('adapter_config.json')
+    if (save_path / 'README.md').exists():
+        files_to_zip.append('README.md')
+    if (save_path / 'metadata.json').exists():
+        files_to_zip.append('metadata.json')
+    
+    # 可能存在的模型文件
+    if (save_path / 'adapter_model.safetensors').exists():
+        files_to_zip.append('adapter_model.safetensors')
+    if (save_path / 'adapter_model.bin').exists():
+        files_to_zip.append('adapter_model.bin')
+    if (save_path / 'pytorch_model.bin').exists():
+        files_to_zip.append('pytorch_model.bin')
+    if (save_path / 'model.safetensors').exists():
+        files_to_zip.append('model.safetensors')
+    
+    # 构建zip命令
+    if files_to_zip:
+        files_str = "' '".join(files_to_zip)
+        cmd = f"cd {config.model.save_path} && zip -r {adapter_zip} '{files_str}'"
+        os.system(cmd)
+        print(f"Packaged files: {files_to_zip}")
+    else:
+        print("Warning: No model files found to package!")
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "README.md" "metadata.json"
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "adapter_model.bin" "README.md" "metadata.json"
     print("Click to download the model to your local computer")

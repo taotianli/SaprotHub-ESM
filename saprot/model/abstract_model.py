@@ -283,31 +283,32 @@ class AbstractModel(pl.LightningModule):
 
         # 检查检查点文件是否存在
         if not os.path.exists(from_checkpoint):
-            print(f"⚠️  警告: 检查点文件不存在: {from_checkpoint}")
-            print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+            # print(f"⚠️  警告: 检查点文件不存在: {from_checkpoint}")
+            # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
             return
 
         try:
-            print(f"📂 正在加载检查点: {from_checkpoint}")
+            # print(f"📂 正在加载检查点: {from_checkpoint}")
             state_dict = torch.load(from_checkpoint, map_location=self.device)
             
             if "model" not in state_dict:
-                print(f"❌ 检查点文件格式错误: 缺少'model'键")
-                print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+                # print(f"❌ 检查点文件格式错误: 缺少'model'键")
+                # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
                 return
                 
             self.load_weights(self.model, state_dict["model"])
-            print(f"✅ 检查点加载成功")
+            # print(f"✅ 检查点加载成功")
             
             if self.load_prev_scheduler:
                 state_dict.pop("model")
                 self.prev_schechuler = state_dict
-                print(f"✅ 调度器状态加载成功")
+                # print(f"✅ 调度器状态加载成功")
                 
         except Exception as e:
-            print(f"❌ 加载检查点时出错: {str(e)}")
-            print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
-    
+            # print(f"❌ 加载检查点时出错: {str(e)}")
+            # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
+            pass
+
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
         Save model to save_path
@@ -320,13 +321,13 @@ class AbstractModel(pl.LightningModule):
             # 确保路径有.pt扩展名
             if not save_path.endswith('.pt'):
                 save_path = save_path + '.pt'
-                print(f"🔧 添加.pt扩展名: {save_path}")
+                # print(f"🔧 添加.pt扩展名: {save_path}")
             
             # 确保目录路径存在
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                print(f"📁 创建/确认保存目录: {dir_path}")
+                # print(f"📁 创建/确认保存目录: {dir_path}")
             
             # Test if directory is writable
             test_file = os.path.join(dir_path if dir_path else '.', '.write_test')
@@ -334,17 +335,17 @@ class AbstractModel(pl.LightningModule):
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                print(f"✅ 目录可写: {dir_path if dir_path else '当前目录'}")
+                # print(f"✅ 目录可写: {dir_path if dir_path else '当前目录'}")
             except (OSError, IOError) as e:
                 # If the original path is not writable, use a fallback path
-                print(f"⚠️  警告: 无法写入目录 {dir_path}, 使用备用路径")
+                # print(f"⚠️  警告: 无法写入目录 {dir_path}, 使用备用路径")
                 fallback_dir = os.path.join(os.getcwd(), 'model_checkpoints')
                 os.makedirs(fallback_dir, exist_ok=True)
                 filename = os.path.basename(save_path)
                 if not filename.endswith('.pt'):
                     filename = filename + '.pt'
                 save_path = os.path.join(fallback_dir, filename)
-                print(f"💾 保存到备用路径: {save_path}")
+                # print(f"💾 保存到备用路径: {save_path}")
             
             state_dict = {} if save_info is None else save_info
             state_dict["model"] = self.model.state_dict()
@@ -364,19 +365,19 @@ class AbstractModel(pl.LightningModule):
                     state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
 
             torch.save(state_dict, save_path)
-            print(f"💾 模型检查点已保存到: {save_path}")
+            # print(f"💾 模型检查点已保存到: {save_path}")
             
         except Exception as e:
-            print(f"❌ 保存检查点时出错: {e}")
+            # print(f"❌ 保存检查点时出错: {e}")
             # Try to save to current directory as last resort
             try:
                 fallback_path = os.path.join(os.getcwd(), 'emergency_checkpoint.pt')
                 state_dict = {} if save_info is None else save_info
                 state_dict["model"] = self.model.state_dict()
                 torch.save(state_dict, fallback_path)
-                print(f"🚨 紧急检查点已保存到: {fallback_path}")
+                # print(f"🚨 紧急检查点已保存到: {fallback_path}")
             except Exception as e2:
-                print(f"❌ 紧急保存也失败: {e2}")
+                # print(f"❌ 紧急保存也失败: {e2}")
                 raise e
 
     def check_save_condition(self, now_value: float, mode: str, save_info: dict = None) -> None:
@@ -401,22 +402,22 @@ class AbstractModel(pl.LightningModule):
             if not save_path.endswith('.pt'):
                 save_path = save_path + '.pt'
             
-            print(f"🔍 检查保存条件，目标路径: {save_path}")
+            # print(f"🔍 检查保存条件，目标路径: {save_path}")
             
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                print(f"📁 创建保存目录: {dir_path}")
+                # print(f"📁 创建保存目录: {dir_path}")
             
             # Check whether to save model
             best_value = getattr(self, f"best_value", None)
             if best_value is not None:
                 if mode == "min" and now_value >= best_value or mode == "max" and now_value <= best_value:
-                    print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
+                    # print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
                     return
                 
             setattr(self, "best_value", now_value)
-            print(f"✅ 新的最佳值: {now_value}，准备保存模型")
+            # print(f"✅ 新的最佳值: {now_value}，准备保存模型")
                 
             # For DeepSpeed strategy
             if hasattr(self.trainer.strategy, "deepspeed_engine"):
