@@ -5,8 +5,8 @@ import torch.distributed as dist
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
-# 导入学习率调度器
-from ...utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
+# 导入学习率调度器 - 修复导入路径
+from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
 @register_model
@@ -189,7 +189,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         # 优先处理tokens
         if "tokens" in inputs:
-            print(f"[模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
+            # print(f"[模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
             tokens = inputs["tokens"].to(device=device)
             
             # 将tokens转换为浮点数类型并进行截断/padding
@@ -198,26 +198,26 @@ class SaprotClassificationModel(SaprotBaseModel):
                 
                 if tokens_float.dim() == 2:
                     batch_size, seq_len = tokens_float.shape
-                    print(f"[模型调试] 原始序列长度: {seq_len}, 目标长度: {self.fixed_seq_length}")
+                    # print(f"[模型调试] 原始序列长度: {seq_len}, 目标长度: {self.fixed_seq_length}")
                     
                     # 截断或padding到固定长度
                     stacked_features = self._pad_or_truncate_features(tokens_float, self.fixed_seq_length)
-                    print(f"[模型调试] 处理后特征形状: {stacked_features.shape}")
+                    # print(f"[模型调试] 处理后特征形状: {stacked_features.shape}")
                     
                 else:
-                    print(f"[模型调试] ❌ tokens维度不符合预期: {tokens_float.shape}")
+                    # print(f"[模型调试] ❌ tokens维度不符合预期: {tokens_float.shape}")
                     # 创建固定长度的零特征
                     batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
                     stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
                 
             except Exception as e:
-                print(f"[模型调试] tokens处理失败: {str(e)}")
+                # print(f"[模型调试] tokens处理失败: {str(e)}")
                 batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs:
-            print(f"[模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
+            # print(f"[模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
             embeddings = inputs["embeddings"].to(device=device, dtype=model_dtype)
             # 如果是高维嵌入，需要转换为固定长度
             if embeddings.dim() == 3:
@@ -226,7 +226,7 @@ class SaprotClassificationModel(SaprotBaseModel):
             stacked_features = self._pad_or_truncate_features(embeddings, self.fixed_seq_length)
         
         elif "sequences" in inputs:
-            print(f"[模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
+            # print(f"[模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
             sequences = inputs["sequences"]
             
             # Process sequences using ESM3 in the model
@@ -254,17 +254,17 @@ class SaprotClassificationModel(SaprotBaseModel):
                                 seq_feature = torch.cat([seq_feature, padding])
                             
                             features.append(seq_feature.to(device=device, dtype=model_dtype))
-                            print(f"[模型调试] 序列 {i} 编码完成，固定长度: {seq_feature.shape}")
+                            # print(f"[模型调试] 序列 {i} 编码完成，固定长度: {seq_feature.shape}")
                         else:
-                            print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
+                            # print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
                             feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                             features.append(feature)
                     else:
-                        print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
+                        # print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
                         feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                         features.append(feature)
                 except Exception as e:
-                    print(f"[模型调试] 序列 {i} 编码出错: {str(e)}")
+                    # print(f"[模型调试] 序列 {i} 编码出错: {str(e)}")
                     feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     features.append(feature)
             
@@ -274,20 +274,20 @@ class SaprotClassificationModel(SaprotBaseModel):
                 stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         else:
-            print(f"[模型调试] ❌ 输入中没有找到tokens、embeddings或sequences")
+            # print(f"[模型调试] ❌ 输入中没有找到tokens、embeddings或sequences")
             stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        print(f"[模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
+        # print(f"[模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
 
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
         # Forward pass
         logits = self.classification_head(stacked_features)
-        print(f"[模型调试] 分类输出形状: {logits.shape}")
+        # print(f"[模型调试] 分类输出形状: {logits.shape}")
         
         return logits
 
@@ -564,3 +564,55 @@ class SaprotClassificationModel(SaprotBaseModel):
         print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
         print(f"✅ 学习率调度器: {lr_scheduler_name}")
         print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
+
+    def training_step(self, batch, batch_idx):
+        """重写训练步骤，添加详细的梯度监控"""
+        inputs, labels = batch
+        
+        # 在前向传播前检查参数梯度状态
+        if batch_idx == 0:  # 只在第一个batch时打印
+            print(f"\n🔍 训练步骤 {batch_idx} 开始前的参数状态:")
+            for name, param in self.classification_head.named_parameters():
+                print(f"  {name}: requires_grad={param.requires_grad}, grad={'有' if param.grad is not None else '无'}")
+        
+        # 前向传播
+        outputs = self(**inputs)
+        
+        # 计算损失
+        loss = self.loss_func('train', outputs, labels)
+        
+        print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
+        
+        # 在返回loss之前检查梯度（PyTorch Lightning会自动调用backward）
+        if batch_idx == 0:  # 只在第一个batch时打印
+            print(f"🔍 损失计算完成，准备反向传播...")
+            print(f"  Loss requires_grad: {loss.requires_grad}")
+            print(f"  Loss grad_fn: {loss.grad_fn}")
+        
+        self.log("loss", loss, prog_bar=True)
+        return loss
+
+    def on_before_optimizer_step(self, optimizer):
+        """在优化器步骤之前检查梯度"""
+        # 检查分类头梯度
+        total_grad_norm = 0.0
+        param_count = 0
+        
+        print(f"\n🔍 优化器步骤前的梯度检查:")
+        for name, param in self.classification_head.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.norm().item()
+                total_grad_norm += grad_norm ** 2
+                param_count += 1
+                print(f"  {name}: grad_norm={grad_norm:.6f}")
+            else:
+                print(f"  {name}: ❌ 无梯度!")
+        
+        if param_count > 0:
+            total_grad_norm = total_grad_norm ** 0.5
+            print(f"  分类头总梯度范数: {total_grad_norm:.6f}")
+        else:
+            print(f"  ❌ 分类头没有任何参数有梯度!")
+        
+        # 调用父类方法
+        super().on_before_optimizer_step(optimizer)

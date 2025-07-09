@@ -317,6 +317,11 @@ class AbstractModel(pl.LightningModule):
             save_weights_only: Whether only save model weights
         """
         try:
+            # 确保路径有.pt扩展名
+            if not save_path.endswith('.pt'):
+                save_path = save_path + '.pt'
+                print(f"🔧 添加.pt扩展名: {save_path}")
+            
             # 确保目录路径存在
             dir_path = os.path.dirname(save_path)
             if dir_path:
@@ -336,6 +341,8 @@ class AbstractModel(pl.LightningModule):
                 fallback_dir = os.path.join(os.getcwd(), 'model_checkpoints')
                 os.makedirs(fallback_dir, exist_ok=True)
                 filename = os.path.basename(save_path)
+                if not filename.endswith('.pt'):
+                    filename = filename + '.pt'
                 save_path = os.path.join(fallback_dir, filename)
                 print(f"💾 保存到备用路径: {save_path}")
             
@@ -385,28 +392,45 @@ class AbstractModel(pl.LightningModule):
 
         if self.save_path is not None:
             # In case there are variables to be included in the save path
-            save_path = eval(f"f'{self.save_path}'")
+            try:
+                save_path = eval(f"f'{self.save_path}'")
+            except:
+                save_path = self.save_path
             
-            dir = os.path.dirname(save_path)
-            os.makedirs(dir, exist_ok=True)
+            # 确保路径有.pt扩展名
+            if not save_path.endswith('.pt'):
+                save_path = save_path + '.pt'
+            
+            print(f"🔍 检查保存条件，目标路径: {save_path}")
+            
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"📁 创建保存目录: {dir_path}")
             
             # Check whether to save model
             best_value = getattr(self, f"best_value", None)
             if best_value is not None:
                 if mode == "min" and now_value >= best_value or mode == "max" and now_value <= best_value:
+                    print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
                     return
                 
             setattr(self, "best_value", now_value)
+            print(f"✅ 新的最佳值: {now_value}，准备保存模型")
                 
             # For DeepSpeed strategy
             if hasattr(self.trainer.strategy, "deepspeed_engine"):
                 if not self.save_weights_only:
-                    self.trainer.strategy.deepspeed_engine.save_checkpoint(save_path, tag="deepspeed_ckpt")
+                    # DeepSpeed保存不需要.pt扩展名
+                    deepspeed_path = save_path.replace('.pt', '') if save_path.endswith('.pt') else save_path
+                    self.trainer.strategy.deepspeed_engine.save_checkpoint(deepspeed_path, tag="deepspeed_ckpt")
                 
                 # Save a complete checkpoint
                 if dist.get_rank() == 0:
                     basename = os.path.basename(save_path)
-                    ckpt_path = os.path.join(save_path, f"{basename}.pt")
+                    if basename.endswith('.pt'):
+                        basename = basename[:-3]  # 移除.pt扩展名
+                    ckpt_path = os.path.join(save_path.replace('.pt', ''), f"{basename}.pt")
                     self.save_checkpoint(ckpt_path, save_info, self.save_weights_only)
             
             # For normal situation
