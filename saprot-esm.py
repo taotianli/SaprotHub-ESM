@@ -2968,8 +2968,18 @@ def choose_training_task():
     name = model_name
     description = '<slot name=\'description\'>'
 
-    # 由于不使用LoRA适配器，直接创建简化的README
+    with open(f'{config.model.save_path}/adapter_config.json', 'r') as f:
+      lora_config = json.load(f)
+
     readme = f'''
+---
+
+base_model: {base_model} \n
+library_name: peft
+
+---
+\n
+
 # Model Card for {name}
 {description}
 
@@ -2979,8 +2989,13 @@ def choose_training_task():
 ## Model input type
 {metadata["training_data_type"]} Sequence
 
-## Base Model
-{base_model}
+## LoRA config
+
+- **r:** {lora_config['r']}
+- **lora_dropout:** {lora_config['lora_dropout']}
+- **lora_alpha:** {lora_config['lora_alpha']}
+- **target_modules:** {lora_config['target_modules']}
+- **modules_to_save:** {lora_config['modules_to_save']}
 
 ## Training config
 
@@ -2991,36 +3006,27 @@ def choose_training_task():
 - **learning rate:** {config.model.lr_scheduler_kwargs.init_lr}
 - **epoch:** {config.Trainer.max_epochs}
 - **batch size:** {config.dataset.dataloader_kwargs.batch_size * config.Trainer.accumulate_grad_batches}
-- **precision:** 16-mixed 
-
+- **precision:** 16-mixed \n
 '''
     # Write the markdown output to a file
     with open(f"{config.model.save_path}/README.md", "w") as file:
       file.write(readme)
 
     ####################################################################
-    #            Save the model            #
+    #            Save the adapter            #
     ####################################################################
     print(Fore.BLUE)
     print(f"Model is saved to \"{config.model.save_path}\" on Colab Server")
     print(Style.RESET_ALL)
 
-    model_zip = Path(config.model.save_path) / f"{model_name}.zip"
-    # 检查目录中是否存在.pt文件，如果存在则添加到压缩包中
-    pt_files = list(Path(config.model.save_path).glob('*.pt'))
-    if pt_files:
-        # 如果有.pt文件，将其包含在压缩包中
-        pt_file_names = [f"'{pt_file.name}'" for pt_file in pt_files]
-        cmd = f"cd {config.model.save_path} && zip -r {model_zip} 'README.md' 'metadata.json' {' '.join(pt_file_names)}"
-        print(f"包含.pt文件: {[pt_file.name for pt_file in pt_files]}")
-    else:
-        # 如果没有.pt文件，只打包README和metadata
-        cmd = f"cd {config.model.save_path} && zip -r {model_zip} 'README.md' 'metadata.json'"
-    
+    adapter_zip = Path(config.model.save_path) / f"{model_name}.zip"
+    cmd = f"cd {config.model.save_path} && zip -r {adapter_zip} 'adapter_config.json' 'adapter_model.safetensors' 'README.md' 'metadata.json'"
     os.system(cmd)
+    # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "README.md" "metadata.json"
+    # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "adapter_model.bin" "README.md" "metadata.json"
     print("Click to download the model to your local computer")
-    if model_zip.exists():
-      file_download(model_zip)
+    if adapter_zip.exists():
+      file_download(adapter_zip)
 
     finish_hint = HTML(markdown.markdown(
         f"## The training is completed, you can then:\n\n"

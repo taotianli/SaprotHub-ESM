@@ -99,15 +99,6 @@ class SaprotClassificationDataset(LMDBDataset):
                 seq_list[idx] = 'X'  # Use X for masked tokens
             seq = "".join(seq_list)
         
-        # 获取标签
-        label = entry["label"] if self.preset_label is None else self.preset_label
-        
-        # 获取坐标信息（如果需要）
-        if self.use_bias_feature:
-            coords = {k: v[:self.max_length] for k, v in entry['coords'].items()}
-        else:
-            coords = None
-        
         # 在主线程中进行ESM3编码
         try:
             if self.esm_model is not None:
@@ -117,53 +108,60 @@ class SaprotClassificationDataset(LMDBDataset):
                 # 创建ESMProtein对象并编码
                 protein = ESMProtein(sequence=seq)
                 
-                # 关键修复：根据模型训练状态决定是否使用no_grad
-                if hasattr(self.esm_model, 'training') and self.esm_model.training:
-                    # 训练模式下，不使用no_grad，保持梯度流动
+                with torch.no_grad():  # 编码时不需要梯度
                     try:
+                        # 直接使用encode方法获取encoded_protein
                         encoded_protein = self.esm_model.encode(protein)
-                        # print(f"[数据集调试] 索引 {index} - ✅ ESM3训练模式编码成功")
-                    except Exception as e:
-                        print(f"[数据集调试] 索引 {index} - ❌ ESM3训练模式编码失败: {e}")
-                        # 降级到no_grad模式
-                        with torch.no_grad():
-                            encoded_protein = self.esm_model.encode(protein)
-                else:
-                    # 推理模式下，使用no_grad节省内存
-                    with torch.no_grad():
-                        encoded_protein = self.esm_model.encode(protein)
-                
-                # print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
-                
-                # 从encoded_protein中提取sequence token
-                if hasattr(encoded_protein, 'sequence'):
-                    seq_tokens = getattr(encoded_protein, 'sequence')
-                    if torch.is_tensor(seq_tokens):
-                        # 确保tokens保持梯度（如果在训练模式）
-                        if hasattr(self.esm_model, 'training') and self.esm_model.training:
-                            seq_tokens.requires_grad_(True)
+                        # print(f"[数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
                         
-                        # 将tokens作为特征返回
-                        # print(f"[数据集调试] 索引 {index} - 提取tokens成功，形状: {seq_tokens.shape}")
-                        sequence_embedding = self._pad_or_truncate_tensor(seq_tokens, self.fixed_seq_length)
-                        return sequence_embedding, label, coords
-                    else:
-                        print(f"[数据集调试] 索引 {index} - ❌ sequence tokens不是tensor")
-                        # 降级到原始序列
-                        return seq, label, coords
-                else:
-                    print(f"[数据集调试] 索引 {index} - ❌ encoded_protein没有sequence属性")
-                    # 降级到原始序列
-                    return seq, label, coords
+                        # 从encoded_protein中提取sequence token
+                        if hasattr(encoded_protein, 'sequence'):
+                            sequence_tokens = getattr(encoded_protein, 'sequence')
+                            # print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
+                            
+                            if torch.is_tensor(sequence_tokens):
+                                # print(f"[数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
+                                # 将tensor移动到模型设备（通常是GPU）
+                                sequence_tokens = sequence_tokens.to(self.model_device)
+                                # 直接在数据集中进行固定长度处理
+                                sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                # print(f"[数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                            else:
+                                # 如果不是tensor，转换为tensor并处理
+                                # 在模型设备上创建tensor（GPU训练时直接在GPU上）
+                                sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device)
+                                sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                # print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                        else:
+                            # print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
+                            # print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
+                            # 返回原始序列
+                            sequence_embedding = seq
+                            
+                    except Exception as encode_error:
+                        # print(f"[数据集调试] 索引 {index} - ESM3编码失败: {str(encode_error)}")
+                        # 发生错误时返回原始序列
+                        sequence_embedding = seq
             else:
-                print(f"[数据集调试] 索引 {index} - ❌ ESM3模型未设置")
-                # 降级到原始序列
-                return seq, label, coords
-                
+                # print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                # print(f"[数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
+                # 返回原始序列，让模型处理
+                sequence_embedding = seq
         except Exception as e:
-            print(f"[数据集调试] 索引 {index} - ❌ ESM3编码过程出错: {e}")
-            # 降级到原始序列
-            return seq, label, coords
+            # print(f"[数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+            # print(f"[数据集调试] 索引 {index} - ❌ ESM3编码失败: {str(e)}")
+            # 发生错误时返回原始序列
+            sequence_embedding = seq
+        
+        if self.use_bias_feature:
+            coords = {k: v[:self.max_length] for k, v in entry['coords'].items()}
+        else:
+            coords = None
+
+        label = entry["label"] if self.preset_label is None else self.preset_label
+
+        # 返回编码后的嵌入或原始序列（如果编码失败）
+        return sequence_embedding, label, coords
 
     def __len__(self):
         return int(self._get("length"))
