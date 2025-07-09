@@ -307,14 +307,14 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             if self.freeze_backbone:
                 hidden_1 = torch.stack(self.get_hidden_states_from_dict(model_inputs_1, reduction="mean"))
                 hidden_2 = torch.stack(self.get_hidden_states_from_dict(model_inputs_2, reduction="mean"))
-            else:
-                # If "esm" is not in the model, use "bert" as the backbone
-                backbone = self.model.esm if hasattr(self.model, "esm") else self.model.bert
+        else:
+            # If "esm" is not in the model, use "bert" as the backbone
+            backbone = self.model.esm if hasattr(self.model, "esm") else self.model.bert
                 hidden_1 = backbone(**model_inputs_1)[0][:, 0, :]
                 hidden_2 = backbone(**model_inputs_2)[0][:, 0, :]
 
-            hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
-            return self.model.classifier(hidden_concat).squeeze(dim=-1)
+        hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
+        return self.model.classifier(hidden_concat).squeeze(dim=-1)
         
         else:
             # print(f"[pair回归模型调试] ❌ 输入中没有找到合适的格式")
@@ -337,7 +337,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
     def loss_func(self, stage, logits, labels):
         fitness = labels['labels'].to(logits)
         loss = torch.nn.functional.mse_loss(logits, fitness)
-        
+
         # Update metrics
         for metric in self.metrics[stage].values():
             # Training is on half precision, but metrics expect float to compute correctly.

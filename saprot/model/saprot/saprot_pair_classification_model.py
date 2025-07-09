@@ -6,7 +6,6 @@ from torch.nn import Linear, ReLU
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
-# 导入学习率调度器 - 修复导入路径
 from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
@@ -23,27 +22,38 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         self.fixed_seq_length = fixed_seq_length
         super().__init__(task="base", **kwargs)
         
-        # 创建固定维度的分类头
-        self.classification_head = torch.nn.Linear(self.fixed_seq_length * 2, self.num_labels)  # *2 for pair
+        # 分类头将在initialize_model中创建
+        # print(f"分类头将在initialize_model中创建")
+
+    def initialize_model(self):
+        """初始化ESM3模型和分类头"""
+        super().initialize_model()
         
-        # print(f"创建固定pair分类头: {self.fixed_seq_length * 2} -> {self.num_labels}")
-        # print(f"分类头参数: weight={self.classification_head.weight.shape}, bias={self.classification_head.bias.shape}")
+        # 获取ESM3模型的隐藏维度
+        # ESM3模型没有config属性，需要从模型结构中获取hidden_size
+        if hasattr(self.model, 'embed_tokens'):
+            hidden_size = self.model.embed_tokens.weight.shape[1]
+        else:
+            # 如果无法获取，使用默认值2560（ESM3的标准隐藏维度）
+            hidden_size = 2560
+        
+        # 对于pair分类，我们需要两倍的hidden_size，因为要处理两个序列
+        hidden_size = hidden_size * 2
+        
+        # 创建分类头
+        self.classification_head = torch.nn.Sequential(
+            torch.nn.Linear(hidden_size, hidden_size // 2),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(hidden_size // 2, self.num_labels)
+        )
+        
+        # 确保分类头参数可训练
+        for param in self.classification_head.parameters():
+            param.requires_grad = True
         
         # 重新初始化优化器以包含分类头参数
         self.init_optimizers()
-
-    def initialize_model(self):
-        super().initialize_model()
-        
-        # 保留原有的classifier作为兜底
-        hidden_size = self.model.config.hidden_size * 2
-        classifier = torch.nn.Sequential(
-                        Linear(hidden_size, hidden_size),
-                        ReLU(),
-                        Linear(hidden_size, self.num_labels)
-                    )
-        
-        setattr(self.model, "classifier", classifier)
 
     def initialize_metrics(self, stage):
         # For newer versions of torchmetrics, need to specify task type
@@ -57,7 +67,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
     def setup(self, stage=None):
         """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
         super().setup(stage)
-        # print("pair分类模型setup完成，将在训练开始时设置ESM3模型到数据集")
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
@@ -90,9 +99,8 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             # 设置ESM3模型
             for stage, dataset in datasets:
                 if dataset is not None and hasattr(dataset, 'set_esm_model'):
-                    # print(f"设置ESM3模型到{stage}数据集: {type(dataset).__name__}")
                     dataset.set_esm_model(self.model)
-                    
+            
             # 另外检查dataloader中的数据集
             dataloaders = []
             
@@ -126,7 +134,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             for stage, dataloader in dataloaders:
                 if dataloader is not None:
                     if hasattr(dataloader, 'dataset') and hasattr(dataloader.dataset, 'set_esm_model'):
-                        # print(f"设置ESM3模型到{stage} dataloader数据集: {type(dataloader.dataset).__name__}")
                         dataloader.dataset.set_esm_model(self.model)
 
     def _pad_or_truncate_features(self, features, target_length):
@@ -184,7 +191,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         
         # 优先处理tokens
         if "tokens" in inputs_1 and "tokens" in inputs_2:
-            # print(f"[pair分类模型调试] 使用tokens，形状: {inputs_1['tokens'].shape}, {inputs_2['tokens'].shape}")
             tokens_1 = inputs_1["tokens"].to(device=device)
             tokens_2 = inputs_2["tokens"].to(device=device)
             
@@ -200,21 +206,16 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                     
                     # 连接两个序列的特征
                     stacked_features = torch.cat([features_1, features_2], dim=1)
-                    # print(f"[pair分类模型调试] 连接后特征形状: {stacked_features.shape}")
-                    
                 else:
-                    # print(f"[pair分类模型调试] ❌ tokens维度不符合预期")
                     batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                     stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
                 
             except Exception as e:
-                # print(f"[pair分类模型调试] tokens处理失败: {str(e)}")
                 batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
-            # print(f"[pair分类模型调试] 使用预编码的嵌入")
             embeddings_1 = inputs_1["embeddings"].to(device=device, dtype=model_dtype)
             embeddings_2 = inputs_2["embeddings"].to(device=device, dtype=model_dtype)
             
@@ -229,7 +230,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             stacked_features = torch.cat([features_1, features_2], dim=1)
         
         elif "sequences" in inputs_1 and "sequences" in inputs_2:
-            # print(f"[pair分类模型调试] 处理原始序列对")
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
@@ -291,7 +291,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                         features_1.append(feature_1)
                         features_2.append(feature_2)
                 except Exception as e:
-                    # print(f"[pair分类模型调试] 序列对 {i} 编码出错: {str(e)}")
                     feature_1 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     feature_2 = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                     features_1.append(feature_1)
@@ -303,60 +302,21 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)
             else:
                 stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
-
-        # 保留原有的ESM和ProtBERT逻辑作为兜底
-        elif "inputs" in inputs_1 and "inputs" in inputs_2:
-            model_inputs_1 = inputs_1["inputs"]
-            model_inputs_2 = inputs_2["inputs"]
-            
-            if self.freeze_backbone:
-                hidden_1 = torch.stack(self.get_hidden_states_from_dict(model_inputs_1, reduction="mean"))
-                hidden_2 = torch.stack(self.get_hidden_states_from_dict(model_inputs_2, reduction="mean"))
-            else:
-                # If "esm" is not in the model, use "bert" as the backbone
-                backbone = self.model.esm if hasattr(self.model, "esm") else self.model.bert
-                
-                # 检查输入的token IDs是否在有效范围内
-                vocab_size = backbone.embeddings.word_embeddings.num_embeddings
-                
-                # 处理inputs_1
-                input_ids_1 = model_inputs_1["input_ids"]
-                if torch.max(input_ids_1) >= vocab_size:
-                    # 将超出范围的ID替换为UNK token ID
-                    unk_id = self.tokenizer.unk_token_id if self.tokenizer.unk_token_id is not None else 0
-                    model_inputs_1["input_ids"] = torch.where(input_ids_1 < vocab_size, input_ids_1, torch.tensor(unk_id).to(input_ids_1.device))
-                
-                # 处理inputs_2
-                input_ids_2 = model_inputs_2["input_ids"]
-                if torch.max(input_ids_2) >= vocab_size:
-                    # 将超出范围的ID替换为UNK token ID
-                    unk_id = self.tokenizer.unk_token_id if self.tokenizer.unk_token_id is not None else 0
-                    model_inputs_2["input_ids"] = torch.where(input_ids_2 < vocab_size, input_ids_2, torch.tensor(unk_id).to(input_ids_2.device))
-                    
-                hidden_1 = backbone(**model_inputs_1)[0][:, 0, :]
-                hidden_2 = backbone(**model_inputs_2)[0][:, 0, :]
-
-            hidden_concat = torch.cat([hidden_1, hidden_2], dim=-1)
-            return self.model.classifier(hidden_concat)
         
         else:
-            # print(f"[pair分类模型调试] ❌ 输入中没有找到合适的格式")
             stacked_features = torch.zeros(1, self.fixed_seq_length * 2, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # print(f"[pair分类模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length * 2})")
-
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
-        # Forward pass
+        # Forward pass through the sequential classification head
         logits = self.classification_head(stacked_features)
-        # print(f"[pair分类模型调试] 分类输出形状: {logits.shape}")
         
         return logits
-    
+
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
         loss = cross_entropy(logits, label)
@@ -398,8 +358,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                     all_params.append((name, param))
                     esm3_param_count += 1
         
-        # print(f"ESM3模型可训练参数数量: {esm3_param_count}")
-        
         # 添加分类头参数
         classification_head_param_count = 0
         if hasattr(self, 'classification_head') and self.classification_head is not None:
@@ -408,13 +366,8 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                     full_name = f"classification_head.{name}"
                     all_params.append((full_name, param))
                     classification_head_param_count += 1
-                    # print(f"  ✅ 添加到优化器: {full_name}")
-
-        # print(f"分类头可训练参数数量: {classification_head_param_count}")
-        # print(f"总可训练参数数量: {len(all_params)}")
 
         if not all_params:
-            # print("⚠️ 警告: 没有找到需要优化的参数!")
             # 创建一个虚拟参数避免优化器错误
             dummy_param = torch.nn.Parameter(torch.tensor(0.0))
             optimizer_grouped_parameters = [
@@ -450,7 +403,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
-            # print(f"⚠️  未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
@@ -465,8 +417,6 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         # 计算损失
         loss = self.loss_func('train', outputs, labels)
         
-        # print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
-        
         self.log("loss", loss, prog_bar=True)
         return loss
 
@@ -479,19 +429,14 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         log_dict = self.get_log_dict("test")
         log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
 
-        # if dist.get_rank() == 0:
-        #     print(log_dict)
         self.output_test_metrics(log_dict)
         self.log_info(log_dict)
-
         self.reset_metrics("test")
 
     def on_validation_epoch_end(self):
         log_dict = self.get_log_dict("valid")
         log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
 
-        # if dist.get_rank() == 0:
-        #     print(log_dict)
         self.log_info(log_dict)
         self.reset_metrics("valid")
         self.check_save_condition(log_dict["valid_acc"], mode="max")
