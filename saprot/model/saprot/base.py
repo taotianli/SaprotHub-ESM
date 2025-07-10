@@ -65,7 +65,7 @@ class SaprotBaseModel(AbstractModel):
         # After all initialization done, lora technique is applied if needed
         # Temporarily disable LoRA for ESM3 compatibility
         if self.lora_kwargs is not None:
-            print("警告: LoRA暂时禁用以兼容ESM3模型。如需使用LoRA，请手动配置适合ESM3架构的target_modules。")
+            # print("警告: LoRA暂时禁用以兼容ESM3模型。如需使用LoRA，请手动配置适合ESM3架构的target_modules。")
             self.lora_kwargs = None
             # # No need to freeze backbone if LoRA is used
             # self.freeze_backbone = False
@@ -265,17 +265,17 @@ class SaprotBaseModel(AbstractModel):
             esm3_model_name = "esm3-open"
             print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
 
-        print(f"🚀 开始加载ESM3模型...")
+        # print(f"🚀 开始加载ESM3模型...")
         self.model = ESM3.from_pretrained(esm3_model_name)
-        print(f"✅ ESM3模型加载完成: {esm3_model_name}")
+        # print(f"✅ ESM3模型加载完成: {esm3_model_name}")
 
         # 打印模型信息
-        if hasattr(self.model, 'config'):
-            print(f"📊 模型配置信息: {self.model.config}")
+        # if hasattr(self.model, 'config'):
+        #     print(f"📊 模型配置信息: {self.model.config}")
 
-        print(f"🎯 模型设备: {next(self.model.parameters()).device}")
-        print(f"🎯 模型数据类型: {next(self.model.parameters()).dtype}")
-        print(f"🎯 模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
+        # print(f"🎯 模型设备: {next(self.model.parameters()).device}")
+        # print(f"🎯 模型数据类型: {next(self.model.parameters()).dtype}")
+        # print(f"🎯 模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
 
         if self.extra_config is None:
             self.extra_config = {}
@@ -413,11 +413,11 @@ class SaprotBaseModel(AbstractModel):
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                print(f"📁 创建保存目录: {dir_path}")
+                # print(f"📁 创建保存目录: {dir_path}")
             
             # Call parent save_checkpoint method
             super().save_checkpoint(save_path, save_info, save_weights_only)
-            print(f"💾 模型checkpoint已保存到: {save_path}")
+            # print(f"💾 模型checkpoint已保存到: {save_path}")
             
         except Exception as e:
             print(f"❌ 保存checkpoint失败: {str(e)}")
