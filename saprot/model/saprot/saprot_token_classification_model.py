@@ -45,7 +45,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         return tp, tn, fp, fn, mcc
     
     def initialize_metrics(self, stage):
-        return {f"{stage}_acc": torchmetrics.Accuracy()}
+        # For newer versions of torchmetrics, need to specify task type
+        return {f"{stage}_acc": torchmetrics.Accuracy(task="multiclass", num_classes=self.num_labels)}
     
     def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, tokens=None, **kwargs):
         # 获取设备和数据类型
