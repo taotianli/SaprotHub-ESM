@@ -21,13 +21,15 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         self.targets = []
         super().__init__(task="token_classification", **kwargs)
         
-        # 初始化分类头 - 延迟到initialize_model中
+        # 初始化分类头 - 在父类初始化完成后创建
         self.classifier = None
-    
-    def initialize_model(self):
-        """初始化ESM3模型和分类头"""
-        super().initialize_model()
+        self._create_classifier()
         
+        # 重新初始化优化器以包含分类头参数
+        self.init_optimizers()
+    
+    def _create_classifier(self):
+        """创建分类头"""
         # 获取ESM3模型的隐藏维度和数据类型
         if hasattr(self.model, 'embed_tokens'):
             hidden_size = self.model.embed_tokens.weight.shape[1]
@@ -49,9 +51,6 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         # 确保分类头在正确的设备上
         device = next(self.model.parameters()).device
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
-        
-        # 重新初始化优化器以包含分类头参数
-        self.init_optimizers()
     
     def compute_mcc(self, preds, target):
         tp = (preds * target).sum()
@@ -316,6 +315,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     
     def init_optimizers(self):
         """重写优化器初始化，确保包含分类头参数"""
+        # 检查是否有必要的属性
+        if not hasattr(self, 'optimizer_kwargs'):
+            # 如果还没有optimizer_kwargs，说明父类初始化还没完成，跳过
+            return
+            
         import copy
         copy_optimizer_kwargs = copy.deepcopy(self.optimizer_kwargs)
         
