@@ -3126,15 +3126,27 @@ library_name: peft
     task_type_value = task_type.value.lower().replace('-', '_').replace(' ', '_')
     model_name_value = model_name
     weight_file_name = f"{model_name_value}.pt"
+    
+    # 调试输出：显示当前查找的路径和文件
+    print(f"🔍 调试信息:")
+    print(f"  - 保存路径: {save_path}")
+    print(f"  - 任务类型: {task_type.value} -> {task_type_value}")
+    print(f"  - 模型名称: {model_name_value}")
+    print(f"  - 查找权重文件: {weight_file_name}")
+    print(f"  - 完整权重文件路径: {save_path / weight_file_name}")
+    print(f"  - 权重文件是否存在: {(save_path / weight_file_name).exists()}")
+    
     if (save_path / weight_file_name).exists():
         files_to_zip.append(weight_file_name)
-        print(f"Found ESM3 weight file: {weight_file_name}")
+        print(f"✅ Found ESM3 weight file: {weight_file_name}")
     else:
-        print(f"Warning: ESM3 weight file not found: {weight_file_name}")
+        print(f"⚠️ Warning: ESM3 weight file not found: {weight_file_name}")
         # 尝试查找其他可能的.pt文件
-        for pt_file in save_path.glob("*.pt"):
+        pt_files_found = list(save_path.glob("*.pt"))
+        print(f"🔍 搜索目录中的所有.pt文件: {[f.name for f in pt_files_found]}")
+        for pt_file in pt_files_found:
             files_to_zip.append(pt_file.name)
-            print(f"Found alternative weight file: {pt_file.name}")
+            print(f"✅ Found alternative weight file: {pt_file.name}")
             break
     
     # 构建zip命令
