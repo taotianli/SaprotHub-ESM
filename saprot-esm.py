@@ -3127,41 +3127,86 @@ library_name: peft
     model_name_value = model_name
     weight_file_name = f"{model_name_value}.pt"
     
+    # 权重文件在上一级目录，而不是在模型文件夹内
+    parent_dir = save_path.parent  # /content/SaprotHub/adapters/Local/classification/
+    weight_file_path = parent_dir / weight_file_name
+    
     # 调试输出：显示当前查找的路径和文件
     print(f"🔍 调试信息:")
     print(f"  - 保存路径: {save_path}")
+    print(f"  - 上级目录: {parent_dir}")
     print(f"  - 任务类型: {task_type.value} -> {task_type_value}")
     print(f"  - 模型名称: {model_name_value}")
     print(f"  - 查找权重文件: {weight_file_name}")
-    print(f"  - 完整权重文件路径: {save_path / weight_file_name}")
-    print(f"  - 权重文件是否存在: {(save_path / weight_file_name).exists()}")
+    print(f"  - 权重文件路径: {weight_file_path}")
+    print(f"  - 权重文件是否存在: {weight_file_path.exists()}")
     
-    if (save_path / weight_file_name).exists():
+    if weight_file_path.exists():
+        # 检查文件大小
+        file_size = weight_file_path.stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+        print(f"📊 权重文件大小: {file_size_mb:.2f} MB ({file_size:,} bytes)")
+        
+        # 需要将权重文件复制到模型目录中，这样才能被zip包含
+        import shutil
+        local_weight_path = save_path / weight_file_name
+        print(f"🔄 开始复制权重文件...")
+        shutil.copy2(weight_file_path, local_weight_path)
         files_to_zip.append(weight_file_name)
-        print(f"✅ Found ESM3 weight file: {weight_file_name}")
+        print(f"✅ 复制并包含ESM3权重文件: {weight_file_name}")
+        print(f"📁 复制后文件大小: {local_weight_path.stat().st_size / (1024 * 1024):.2f} MB")
     else:
-        print(f"⚠️ Warning: ESM3 weight file not found: {weight_file_name}")
+        print(f"⚠️ Warning: ESM3 weight file not found: {weight_file_path}")
         # 尝试查找其他可能的.pt文件
         pt_files_found = list(save_path.glob("*.pt"))
-        print(f"🔍 搜索目录中的所有.pt文件: {[f.name for f in pt_files_found]}")
+        parent_pt_files = list(parent_dir.glob("*.pt"))
+        print(f"🔍 模型目录中的.pt文件: {[f.name for f in pt_files_found]}")
+        print(f"🔍 上级目录中的.pt文件: {[f.name for f in parent_pt_files]}")
+        
+        # 先检查模型目录中的.pt文件
         for pt_file in pt_files_found:
             files_to_zip.append(pt_file.name)
-            print(f"✅ Found alternative weight file: {pt_file.name}")
+            print(f"✅ Found weight file in model dir: {pt_file.name}")
             break
+        else:
+            # 如果模型目录没有，尝试从上级目录复制
+            for pt_file in parent_pt_files:
+                if pt_file.name.startswith(model_name_value):
+                    local_weight_path = save_path / pt_file.name
+                    shutil.copy2(pt_file, local_weight_path)
+                    files_to_zip.append(pt_file.name)
+                    print(f"✅ 从上级目录复制权重文件: {pt_file.name}")
+                    break
     
     # 构建zip命令
     if files_to_zip:
         files_str = "' '".join(files_to_zip)
         cmd = f"cd {config.model.save_path} && zip -r {adapter_zip} '{files_str}'"
-        os.system(cmd)
-        print(f"Packaged files: {files_to_zip}")
+        print(f"🔄 执行zip命令: {cmd}")
+        print(f"📦 将要打包的文件: {files_to_zip}")
+        result = os.system(cmd)
+        print(f"📦 zip命令执行结果: {result}")
+        
+        # 检查zip文件是否创建成功
+        if adapter_zip.exists():
+            zip_size = adapter_zip.stat().st_size / (1024 * 1024)
+            print(f"✅ zip文件创建成功: {adapter_zip}")
+            print(f"📊 zip文件大小: {zip_size:.2f} MB")
+        else:
+            print(f"❌ zip文件创建失败: {adapter_zip}")
     else:
         print("Warning: No model files found to package!")
+    
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "README.md" "metadata.json"
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "adapter_model.bin" "README.md" "metadata.json"
-    print("Click to download the model to your local computer")
+    
+    print("🔽 Click to download the model to your local computer")
     if adapter_zip.exists():
-      file_download(adapter_zip)
+        print(f"🚀 开始自动下载: {adapter_zip}")
+        file_download(adapter_zip)
+        print(f"✅ 下载命令已执行")
+    else:
+        print(f"❌ zip文件不存在，无法下载: {adapter_zip}")
 
     finish_hint = HTML(markdown.markdown(
         f"## The training is completed, you can then:\n\n"

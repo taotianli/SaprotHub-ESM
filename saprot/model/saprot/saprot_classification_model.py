@@ -479,6 +479,125 @@ class SaprotClassificationModel(SaprotBaseModel):
         #     print("=" * 50 + "\n")
         pass
 
+    def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
+        """
+        重写保存方法，只保存分类头权重而不是整个ESM3模型
+        """
+        import os
+        import torch
+        
+        try:
+            # 创建保存目录
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+            
+            # 只保存分类头的权重
+            if hasattr(self, 'classification_head') and self.classification_head is not None:
+                classification_head_state = self.classification_head.state_dict()
+                
+                # 创建保存的状态字典，只包含分类头
+                state_dict = {} if save_info is None else save_info.copy()
+                state_dict["classification_head"] = classification_head_state
+                state_dict["num_labels"] = self.num_labels
+                state_dict["fixed_seq_length"] = self.fixed_seq_length
+                state_dict["task"] = "classification"
+                
+                # 计算权重文件大小
+                param_count = sum(p.numel() for p in self.classification_head.parameters())
+                print(f"🔍 保存分类头权重:")
+                print(f"  - 参数数量: {param_count:,}")
+                print(f"  - 保存路径: {save_path}")
+                
+                if not save_weights_only:
+                    # 如果需要保存训练状态
+                    state_dict["global_step"] = self.step
+                    state_dict["epoch"] = self.epoch
+                    state_dict["best_value"] = getattr(self, "best_value", None)
+                    
+                    if hasattr(self, 'lr_schedulers') and self.lr_schedulers() is not None:
+                        state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
+                    
+                    if hasattr(self, 'optimizers') and self.optimizers() is not None:
+                        state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
+                
+                # 保存到文件
+                torch.save(state_dict, save_path)
+                
+                # 验证保存的文件大小
+                saved_size = os.path.getsize(save_path) / (1024 * 1024)
+                print(f"✅ 分类头权重保存成功: {saved_size:.2f} MB")
+                
+            else:
+                print("❌ 分类头不存在，无法保存")
+                raise ValueError("Classification head not found")
+                
+        except Exception as e:
+            print(f"❌ 保存分类头权重失败: {str(e)}")
+            # 尝试保存到当前目录作为备份
+            try:
+                fallback_path = os.path.join(os.getcwd(), 'classification_head_checkpoint.pt')
+                if hasattr(self, 'classification_head'):
+                    state_dict = {"classification_head": self.classification_head.state_dict()}
+                    torch.save(state_dict, fallback_path)
+                    print(f"💾 备用保存成功: {fallback_path}")
+            except Exception as e2:
+                print(f"❌ 备用保存也失败: {str(e2)}")
+                raise e
+
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """
+        加载分类头权重
+        """
+        import torch
+        import os
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            return
+        
+        try:
+            # 加载权重
+            state_dict = torch.load(checkpoint_path, map_location='cpu')
+            
+            # 验证是否为分类头权重文件
+            if "classification_head" in state_dict:
+                # 新格式：只包含分类头
+                classification_head_state = state_dict["classification_head"]
+                num_labels = state_dict.get("num_labels", self.num_labels)
+                fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
+                
+                print(f"🔍 加载分类头权重:")
+                print(f"  - 文件: {checkpoint_path}")
+                print(f"  - 标签数: {num_labels}")
+                print(f"  - 序列长度: {fixed_seq_length}")
+                
+                # 验证维度匹配
+                if num_labels == self.num_labels and fixed_seq_length == self.fixed_seq_length:
+                    self.classification_head.load_state_dict(classification_head_state)
+                    print(f"✅ 分类头权重加载成功")
+                else:
+                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, {self.num_labels}), 实际({fixed_seq_length}, {num_labels})")
+                    
+            elif "model" in state_dict and any("classification_head" in k for k in state_dict["model"].keys()):
+                # 旧格式：包含整个模型，提取分类头部分
+                model_state = state_dict["model"]
+                classification_head_state = {
+                    k.replace("classification_head.", ""): v 
+                    for k, v in model_state.items() 
+                    if k.startswith("classification_head.")
+                }
+                if classification_head_state:
+                    self.classification_head.load_state_dict(classification_head_state)
+                    print(f"✅ 从完整模型权重中提取并加载分类头")
+                else:
+                    print(f"❌ 在模型权重中未找到分类头参数")
+            else:
+                print(f"❌ 不识别的权重文件格式")
+                
+        except Exception as e:
+            print(f"❌ 加载分类头权重失败: {str(e)}")
+
     def init_optimizers(self):
         """重写优化器初始化，确保包含分类头参数"""
         import copy
