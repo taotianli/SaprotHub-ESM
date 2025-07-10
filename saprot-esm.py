@@ -495,7 +495,7 @@ def adapters_textmultiple(adapters_list):
 def select_adapter_from(task_type, use_model_from):
   adapters_list = get_adapters_list(task_type)
 
-  if use_model_from == 'Trained by yourself on ColabSaprot':
+  if use_model_from == 'Trained by yourself on ColabESM3':
     return adapters_dropdown(adapters_list)
 
   elif use_model_from == 'Shared by peers on SaprotHub':
@@ -526,16 +526,16 @@ def select_adapter_from(task_type, use_model_from):
 
     return EasyDict({"value":  f"Local/{adapter_zip_path.stem}"})
 
-  elif use_model_from == "Multi-models on ColabSaprot":
-    # 1. select the list of adapters
-    print(Fore.BLUE+f"Local Model ({task_type}):"+Style.RESET_ALL)
-    print(Fore.BLUE+f"Multiple values can be selected with \"shift\" and/or \"ctrl\" (or \"command\") pressed and mouse clicks or arrow keys."+Style.RESET_ALL)
-    return adapters_selectmultiple(adapters_list)
+  # elif use_model_from == "Multi-models on ColabESM3":
+  #   # 1. select the list of adapters
+  #   print(Fore.BLUE+f"Local Model ({task_type}):"+Style.RESET_ALL)
+  #   print(Fore.BLUE+f"Multiple values can be selected with \"shift\" and/or \"ctrl\" (or \"command\") pressed and mouse clicks or arrow keys."+Style.RESET_ALL)
+  #   return adapters_selectmultiple(adapters_list)
 
-  elif use_model_from == "Multi-models on SaprotHub":
-    # 1. enter the list of adapters
-    print(Fore.BLUE+f"SaprotHub Model IDs, separated by commas ({task_type}):"+Style.RESET_ALL)
-    return adapters_textmultiple(adapters_list)
+  # elif use_model_from == "Multi-models on SaprotHub":
+  #   # 1. enter the list of adapters
+  #   print(Fore.BLUE+f"SaprotHub Model IDs, separated by commas ({task_type}):"+Style.RESET_ALL)
+  #   return adapters_textmultiple(adapters_list)
 
 
 
@@ -2033,7 +2033,7 @@ def train_or_pred():
   global refresh_module
   refresh_module = train_or_pred
 
-  question = HTML(markdown.markdown("## Please choose what you want to do with ColabSaprot"))
+  question = HTML(markdown.markdown("## Please choose what you want to do with ColabESM3"))
   option_intro = HTML(markdown.markdown(
     "<a href='https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#introduction-of-options' target='blank'>Introduction of these options</a>"
     ))
@@ -2112,7 +2112,7 @@ def choose_training_task():
 
   model_hint = HTML(markdown.markdown("### Model setting:"))
   model_type = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabSaprot", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -2354,7 +2354,7 @@ def choose_training_task():
 
     saprot_650m_hint.layout.display = None if "650M" in model_type_value else "none"
 
-    if model_type_value == "Trained by yourself on ColabSaprot":
+    if model_type_value == "Trained by yourself on ColabESM3":
       model_arg_box = select_adapter_from(None, use_model_from=model_type_value)
       model_arg_box.layout.width = WIDTH
       model_arg_box.description = "Select your local model:"
@@ -2514,7 +2514,7 @@ def choose_training_task():
     model_arg = items[model_arg_box_idx].value
 
     # Check compatibility between chosen task and model
-    if model_type_value == "Shared by peers on SaprotHub" or model_type_value == "Trained by yourself on ColabSaprot" or model_type_value == "Saved in your local computer":
+    if model_type_value == "Shared by peers on SaprotHub" or model_type_value == "Trained by yourself on ColabESM3" or model_type_value == "Saved in your local computer":
       if model_type_value == "Saved in your local computer":
         zip_path = get_upload_file_path(upload_model_items)
         name = os.path.basename(zip_path)
@@ -2567,7 +2567,7 @@ def choose_training_task():
     #####################################################################
     base_model = model_type.value
     # continue learning
-    if base_model in ["Trained by yourself on ColabSaprot", "Shared by peers on SaprotHub", "Saved in your local computer"]:
+    if base_model in ["Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"]:
       continue_learning = True
     else:
       continue_learning = False
@@ -2642,7 +2642,7 @@ def choose_training_task():
       assert metadata["training_task_type"] == task_type.value, f"This dataset is for '{metadata['training_task_type']}', which is not suitable for your task '{task_type.value}'"
 
       # Check compatibility between chosen data and model
-      if model_type_value == "Shared by peers on SaprotHub" or model_type_value == "Trained by yourself on ColabSaprot":
+      if model_type_value == "Shared by peers on SaprotHub" or model_type_value == "Trained by yourself on ColabESM3":
         model_data_type = load_data_type_from_model(model_type_value, model_arg)
 
         if model_data_type != metadata["training_data_type"]:
@@ -3217,7 +3217,7 @@ library_name: peft
         "\t1. Click the ``Go back`` button.\n\n"
         "\t2. Choose ``I want to use existing models to make prediction`` module.\n\n"
         "\t3. Choose ``Protein property prediction`` module.\n\n"
-        "\t4. Set the base model option to ``Trained by yourself on ColabSaprot`` and then choose the model you trained for prediction.\n\n"
+        		"\t4. Set the base model option to ``Trained by yourself on ColabESM3`` and then choose the model you trained for prediction.\n\n"
         "- **Upload this trained model to SaprotHub:**\n\n"
         "\t1. Click the ``Go back`` button.\n\n"
         "\t2. Choose ``I want to share my model publicly`` module.\n\n"
@@ -3255,7 +3255,7 @@ def choose_pred_task():
 
   WIDTH = "500px"
 
-  question = HTML(markdown.markdown("## ColabSaprot supports multiple prediction tasks, which one would you like to choose?"))
+  question = HTML(markdown.markdown("## ColabESM3 supports multiple prediction tasks, which one would you like to choose?"))
   normal_pred = Button(description='Protein property prediction', layout=Layout(width='500px', height='30px'), button_style="info")
   normal_intro = HTML(markdown.markdown(
     f"This section enables property prediction using well-trained models for various protein characteristics, "
@@ -3360,7 +3360,7 @@ def protein_property_prediction():
 
   model_hint = HTML(markdown.markdown("### Choose the model for prediction:"))
   model_type_box = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabSaprot", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -3481,7 +3481,7 @@ def protein_property_prediction():
       else:
         saprothub_data_type_hint.layout.display = "none"
 
-      if model_type_value == "Trained by yourself on ColabSaprot":
+      if model_type_value == "Trained by yourself on ColabESM3":
         new_model_arg_box = select_adapter_from(None, use_model_from=model_type_value)
         new_model_arg_box.layout.width = WIDTH
         new_model_arg_box.description = "Select your local model:"
@@ -4388,7 +4388,7 @@ def obtain_protein_embedding():
 
   model_hint = HTML(markdown.markdown("### Choose the model for embedding generation:"))
   model_type_box = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabSaprot", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -4456,7 +4456,7 @@ def obtain_protein_embedding():
     else:
       saprothub_data_type_hint.layout.display = "none"
 
-    if model_type_value == "Trained by yourself on ColabSaprot":
+    if model_type_value == "Trained by yourself on ColabESM3":
       new_model_arg_box = select_adapter_from(None, use_model_from=model_type_value)
       new_model_arg_box.layout.width = WIDTH
       new_model_arg_box.description = "Select your local model:"
@@ -4650,8 +4650,8 @@ def share_model():
   upload_hint = HTML(markdown.markdown(f"### Choose the model yout want to share"))
 
   share_model_type_box = ipywidgets.Dropdown(
-              options=["Trained by yourself on ColabSaprot", "Saved in your local computer"],
-              value='Trained by yourself on ColabSaprot',
+              options=["Trained by yourself on ColabESM3", "Saved in your local computer"],
+              value='Trained by yourself on ColabESM3',
               description='Base model:',
               disabled=False,
               layout=Layout(width=WIDTH, height=HEIGHT)
@@ -4760,7 +4760,7 @@ def share_model():
   def change_model_type(change):
     model_type_value = change["new"]
 
-    if model_type_value == "Trained by yourself on ColabSaprot":
+    if model_type_value == "Trained by yourself on ColabESM3":
       new_model_arg_box = select_adapter_from(None, use_model_from=model_type_value)
       new_model_arg_box.layout.width = WIDTH
       new_model_arg_box.description = "Select your local model:"
