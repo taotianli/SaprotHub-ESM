@@ -82,42 +82,71 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         else:
             # 处理不同类型的输入
             if "tokens" in inputs:
-                tokens = inputs["tokens"].to(device=device, dtype=model_dtype)
-                # 使用ESM3模型进行编码
-                from esm.sdk.api import ESMProtein
-                batch_size = tokens.shape[0]
-                sequence_length = tokens.shape[1]
-                
-                # 创建一个空的输出张量
-                logits = torch.zeros(batch_size, sequence_length, self.num_labels, device=device, dtype=model_dtype)
-                
-                try:
-                    # 对每个序列进行处理
-                    for i in range(batch_size):
-                        protein = ESMProtein(tokens=tokens[i])
-                        with torch.no_grad():
-                            encoded = self.model.encode(protein)
-                        if hasattr(encoded, 'sequence'):
-                            seq_tokens = getattr(encoded, 'sequence')
-                            if torch.is_tensor(seq_tokens):
-                                # 确保维度正确
-                                if seq_tokens.dim() == 2:
-                                    features = seq_tokens
-                                else:
-                                    features = seq_tokens.unsqueeze(-1).expand(-1, hidden_size)
-                                # 截断或padding到正确的长度
-                                if len(features) > sequence_length:
-                                    features = features[:sequence_length]
-                                elif len(features) < sequence_length:
-                                    padding = torch.zeros(sequence_length - len(features), hidden_size, device=device, dtype=model_dtype)
-                                    features = torch.cat([features, padding])
-                                # 通过分类头
-                                logits[i] = self.classifier(features)
-                except Exception as e:
-                    print(f"处理序列时出错: {e}")
+                tokens = inputs["tokens"]
+                # 确保tokens是float类型而不是long类型，以避免fused_dropout错误
+                if tokens.dtype == torch.long:
+                    # 创建一个浮点类型的嵌入表示
+                    token_embeddings = torch.zeros(tokens.shape[0], tokens.shape[1], hidden_size, 
+                                                  device=device, dtype=model_dtype)
+                    
+                    # 使用ESM3模型进行编码
+                    from esm.sdk.api import ESMProtein
+                    batch_size = tokens.shape[0]
+                    sequence_length = tokens.shape[1]
+                    
+                    # 创建一个空的输出张量，确保是浮点类型
+                    logits = torch.zeros(batch_size, sequence_length, self.num_labels, 
+                                        device=device, dtype=model_dtype, requires_grad=True)
+                    
+                    try:
+                        # 对每个序列进行处理
+                        for i in range(batch_size):
+                            # 确保tokens是long类型用于ESM3输入
+                            seq_tokens = tokens[i].to(dtype=torch.long)
+                            protein = ESMProtein(tokens=seq_tokens)
+                            
+                            # 使用no_grad仅用于编码，不用于分类头
+                            with torch.no_grad():
+                                encoded = self.model.encode(protein)
+                                
+                            if hasattr(encoded, 'sequence'):
+                                seq_features = getattr(encoded, 'sequence')
+                                if torch.is_tensor(seq_features):
+                                    # 确保维度正确
+                                    if seq_features.dim() == 2:
+                                        features = seq_features
+                                    else:
+                                        features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
+                                    
+                                    # 确保features是浮点类型
+                                    features = features.to(dtype=model_dtype)
+                                    
+                                    # 截断或padding到正确的长度
+                                    if len(features) > sequence_length:
+                                        features = features[:sequence_length]
+                                    elif len(features) < sequence_length:
+                                        padding = torch.zeros(sequence_length - len(features), hidden_size, 
+                                                            device=device, dtype=model_dtype)
+                                        features = torch.cat([features, padding])
+                                    
+                                    # 存储嵌入表示
+                                    token_embeddings[i] = features
+                    except Exception as e:
+                        print(f"处理序列时出错: {e}")
+                    
+                    # 使用分类头处理整个批次的嵌入
+                    # 确保token_embeddings需要梯度
+                    token_embeddings = token_embeddings.detach().requires_grad_(True)
+                    logits = self.classifier(token_embeddings)
+                else:
+                    # 如果已经是浮点类型，直接使用
+                    logits = self.classifier(tokens)
                     
             elif "embeddings" in inputs:
                 embeddings = inputs["embeddings"].to(device=device, dtype=model_dtype)
+                # 确保embeddings需要梯度
+                if not embeddings.requires_grad:
+                    embeddings = embeddings.detach().requires_grad_(True)
                 logits = self.classifier(embeddings)
                 
             elif "sequences" in inputs:
@@ -127,33 +156,52 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 batch_size = len(sequences)
                 sequence_length = max(len(seq) for seq in sequences)
                 
+                # 创建一个浮点类型的嵌入表示
+                sequence_embeddings = torch.zeros(batch_size, sequence_length, hidden_size, 
+                                               device=device, dtype=model_dtype)
+                
                 # 创建一个空的输出张量
-                logits = torch.zeros(batch_size, sequence_length, self.num_labels, device=device, dtype=model_dtype)
+                logits = torch.zeros(batch_size, sequence_length, self.num_labels, 
+                                    device=device, dtype=model_dtype, requires_grad=True)
                 
                 try:
                     # 对每个序列进行处理
                     for i, seq in enumerate(sequences):
                         protein = ESMProtein(sequence=seq)
+                        
+                        # 使用no_grad仅用于编码，不用于分类头
                         with torch.no_grad():
                             encoded = self.model.encode(protein)
+                            
                         if hasattr(encoded, 'sequence'):
-                            seq_tokens = getattr(encoded, 'sequence')
-                            if torch.is_tensor(seq_tokens):
+                            seq_features = getattr(encoded, 'sequence')
+                            if torch.is_tensor(seq_features):
                                 # 确保维度正确
-                                if seq_tokens.dim() == 2:
-                                    features = seq_tokens
+                                if seq_features.dim() == 2:
+                                    features = seq_features
                                 else:
-                                    features = seq_tokens.unsqueeze(-1).expand(-1, hidden_size)
+                                    features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
+                                
+                                # 确保features是浮点类型
+                                features = features.to(dtype=model_dtype)
+                                
                                 # 截断或padding到正确的长度
                                 if len(features) > sequence_length:
                                     features = features[:sequence_length]
                                 elif len(features) < sequence_length:
-                                    padding = torch.zeros(sequence_length - len(features), hidden_size, device=device, dtype=model_dtype)
+                                    padding = torch.zeros(sequence_length - len(features), hidden_size, 
+                                                        device=device, dtype=model_dtype)
                                     features = torch.cat([features, padding])
-                                # 通过分类头
-                                logits[i] = self.classifier(features)
+                                
+                                # 存储嵌入表示
+                                sequence_embeddings[i] = features
                 except Exception as e:
                     print(f"处理序列时出错: {e}")
+                
+                # 使用分类头处理整个批次的嵌入
+                # 确保sequence_embeddings需要梯度
+                sequence_embeddings = sequence_embeddings.detach().requires_grad_(True)
+                logits = self.classifier(sequence_embeddings)
                     
             else:
                 # 使用原有的ESM或BERT模型作为后备
@@ -165,6 +213,9 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     raise ValueError("模型既没有ESM也没有BERT backbone")
                 
                 outputs = backbone(**inputs)
+                # 确保输出需要梯度
+                if not outputs[0].requires_grad:
+                    outputs = (outputs[0].detach().requires_grad_(True),) + outputs[1:]
                 logits = self.classifier(outputs[0])
         
         return logits
@@ -174,6 +225,14 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         # Flatten the logits and labels
         logits = logits.view(-1, self.num_labels)
         label = label.view(-1)
+        
+        # 确保label是long类型
+        label = label.to(dtype=torch.long)
+        
+        # 确保logits需要梯度
+        if not logits.requires_grad:
+            logits = logits.detach().requires_grad_(True)
+            
         loss = cross_entropy(logits, label, ignore_index=-1)
         
         # Remove the ignored index
