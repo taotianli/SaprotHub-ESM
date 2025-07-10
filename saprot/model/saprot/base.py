@@ -259,11 +259,11 @@ class SaprotBaseModel(AbstractModel):
         if self.config_path and self.config_path != "esm3-open":
             # 如果提供了具体的config_path，使用它
             esm3_model_name = self.config_path
-            print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
+            # print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
         else:
             # 默认使用esm3-open
             esm3_model_name = "esm3-open"
-            print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
+            # print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
 
         # print(f"🚀 开始加载ESM3模型...")
         self.model = ESM3.from_pretrained(esm3_model_name)

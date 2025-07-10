@@ -1,4 +1,4 @@
-#@title **Click the run-button**
+#@title **Step 3: Click the run-button to use ColabESM3**
 
 #@markdown ### Hint:
 #@markdown - It takes 3-8 minutes for the initial installation.
@@ -3120,6 +3120,22 @@ library_name: peft
         files_to_zip.append('pytorch_model.bin')
     if (save_path / 'model.safetensors').exists():
         files_to_zip.append('model.safetensors')
+    
+    # 添加ESM3权重文件 (.pt文件)
+    # 权重文件保存在 /content/SaprotHub/adapters/Local/{task}/{model_name}.pt
+    task_type_value = task_type.value.lower().replace('-', '_').replace(' ', '_')
+    model_name_value = model_name
+    weight_file_name = f"{model_name_value}.pt"
+    if (save_path / weight_file_name).exists():
+        files_to_zip.append(weight_file_name)
+        print(f"Found ESM3 weight file: {weight_file_name}")
+    else:
+        print(f"Warning: ESM3 weight file not found: {weight_file_name}")
+        # 尝试查找其他可能的.pt文件
+        for pt_file in save_path.glob("*.pt"):
+            files_to_zip.append(pt_file.name)
+            print(f"Found alternative weight file: {pt_file.name}")
+            break
     
     # 构建zip命令
     if files_to_zip:
