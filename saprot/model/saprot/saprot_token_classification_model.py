@@ -359,19 +359,28 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             },
         ]
 
-        # 创建优化器
-        optimizer_class = getattr(torch.optim, self.optimizer)
-        self.optimizer = optimizer_class(optimizer_grouped_parameters, **copy_optimizer_kwargs)
+        # 创建优化器 - 使用与abstract_model相同的方式
+        optimizer_cls = eval(f"torch.optim.{copy_optimizer_kwargs.pop('class')}")
+        self.optimizer = optimizer_cls(optimizer_grouped_parameters,
+                                       lr=self.lr_scheduler_kwargs['init_lr'],
+                                       **copy_optimizer_kwargs)
         
-        # 初始化学习率调度器
-        if self.scheduler is not None:
-            from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
+        # 创建学习率调度器
+        tmp_kwargs = copy.deepcopy(self.lr_scheduler_kwargs)
+        lr_scheduler_name = tmp_kwargs.pop("class")
+        
+        # 根据调度器名称选择正确的类
+        if lr_scheduler_name == "ConstantLRScheduler":
+            from utils.lr_scheduler import ConstantLRScheduler
+            lr_scheduler_cls = ConstantLRScheduler
+        elif lr_scheduler_name == "CosineAnnealingLRScheduler":
+            from utils.lr_scheduler import CosineAnnealingLRScheduler
+            lr_scheduler_cls = CosineAnnealingLRScheduler
+        elif lr_scheduler_name == "Esm2LRScheduler":
+            from utils.lr_scheduler import Esm2LRScheduler
+            lr_scheduler_cls = Esm2LRScheduler
+        else:
+            # 使用eval来处理其他调度器
+            lr_scheduler_cls = eval(lr_scheduler_name)
             
-            if self.scheduler == "constant":
-                self.scheduler = ConstantLRScheduler(self.optimizer, **self.scheduler_kwargs)
-            elif self.scheduler == "cosine":
-                self.scheduler = CosineAnnealingLRScheduler(self.optimizer, **self.scheduler_kwargs)
-            elif self.scheduler == "esm2":
-                self.scheduler = Esm2LRScheduler(self.optimizer, **self.scheduler_kwargs)
-            else:
-                self.scheduler = None
+        self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
