@@ -21,19 +21,37 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         self.targets = []
         super().__init__(task="token_classification", **kwargs)
         
-        # 初始化分类头
+        # 初始化分类头 - 延迟到initialize_model中
+        self.classifier = None
+    
+    def initialize_model(self):
+        """初始化ESM3模型和分类头"""
+        super().initialize_model()
+        
+        # 获取ESM3模型的隐藏维度和数据类型
         if hasattr(self.model, 'embed_tokens'):
             hidden_size = self.model.embed_tokens.weight.shape[1]
         else:
             hidden_size = 2560  # ESM3的标准隐藏维度
-            
+        
+        # 获取模型的数据类型
+        model_dtype = next(self.model.parameters()).dtype
+        
+        # 创建分类头，确保使用与ESM3模型相同的数据类型
         self.classifier = torch.nn.Sequential(
             torch.nn.Dropout(0.1),
-            torch.nn.Linear(hidden_size, hidden_size),
+            torch.nn.Linear(hidden_size, hidden_size, dtype=model_dtype),
             torch.nn.GELU(),
             torch.nn.Dropout(0.1),
-            torch.nn.Linear(hidden_size, num_labels)
+            torch.nn.Linear(hidden_size, self.num_labels, dtype=model_dtype)
         )
+        
+        # 确保分类头在正确的设备上
+        device = next(self.model.parameters()).device
+        self.classifier = self.classifier.to(device=device, dtype=model_dtype)
+        
+        # 重新初始化优化器以包含分类头参数
+        self.init_optimizers()
     
     def compute_mcc(self, preds, target):
         tp = (preds * target).sum()
@@ -78,69 +96,67 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             hidden_states = self.get_hidden_states_from_dict(inputs, reduction=None)
             if isinstance(hidden_states, list):
                 hidden_states = torch.stack(hidden_states)
+            # 确保hidden_states的数据类型与模型一致
+            hidden_states = hidden_states.to(device=device, dtype=model_dtype)
             logits = self.classifier(hidden_states)
         else:
             # 处理不同类型的输入
             if "tokens" in inputs:
                 tokens = inputs["tokens"]
-                # 确保tokens是float类型而不是long类型，以避免fused_dropout错误
-                if tokens.dtype == torch.long:
-                    # 创建一个浮点类型的嵌入表示
-                    token_embeddings = torch.zeros(tokens.shape[0], tokens.shape[1], hidden_size, 
-                                                  device=device, dtype=model_dtype)
-                    
-                    # 使用ESM3模型进行编码
-                    from esm.sdk.api import ESMProtein
-                    batch_size = tokens.shape[0]
-                    sequence_length = tokens.shape[1]
-                    
-                    # 创建一个空的输出张量，确保是浮点类型
-                    logits = torch.zeros(batch_size, sequence_length, self.num_labels, 
-                                        device=device, dtype=model_dtype, requires_grad=True)
-                    
-                    try:
-                        # 对每个序列进行处理
-                        for i in range(batch_size):
-                            # 确保tokens是long类型用于ESM3输入
-                            seq_tokens = tokens[i].to(dtype=torch.long)
-                            protein = ESMProtein(tokens=seq_tokens)
+                # 确保tokens是long类型用于ESM3输入
+                if tokens.dtype != torch.long:
+                    tokens = tokens.to(dtype=torch.long)
+                
+                # 创建一个浮点类型的嵌入表示
+                token_embeddings = torch.zeros(tokens.shape[0], tokens.shape[1], hidden_size, 
+                                              device=device, dtype=model_dtype)
+                
+                # 使用ESM3模型进行编码
+                from esm.sdk.api import ESMProtein
+                batch_size = tokens.shape[0]
+                sequence_length = tokens.shape[1]
+                
+                try:
+                    # 对每个序列进行处理
+                    for i in range(batch_size):
+                        # 确保tokens是long类型用于ESM3输入
+                        seq_tokens = tokens[i].to(dtype=torch.long)
+                        protein = ESMProtein(tokens=seq_tokens)
+                        
+                        # 使用no_grad仅用于编码，不用于分类头
+                        with torch.no_grad():
+                            encoded = self.model.encode(protein)
                             
-                            # 使用no_grad仅用于编码，不用于分类头
-                            with torch.no_grad():
-                                encoded = self.model.encode(protein)
+                        if hasattr(encoded, 'sequence'):
+                            seq_features = getattr(encoded, 'sequence')
+                            if torch.is_tensor(seq_features):
+                                # 确保维度正确
+                                if seq_features.dim() == 2:
+                                    features = seq_features
+                                else:
+                                    features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
                                 
-                            if hasattr(encoded, 'sequence'):
-                                seq_features = getattr(encoded, 'sequence')
-                                if torch.is_tensor(seq_features):
-                                    # 确保维度正确
-                                    if seq_features.dim() == 2:
-                                        features = seq_features
-                                    else:
-                                        features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
-                                    
-                                    # 确保features是浮点类型
-                                    features = features.to(dtype=model_dtype)
-                                    
-                                    # 截断或padding到正确的长度
-                                    if len(features) > sequence_length:
-                                        features = features[:sequence_length]
-                                    elif len(features) < sequence_length:
-                                        padding = torch.zeros(sequence_length - len(features), hidden_size, 
-                                                            device=device, dtype=model_dtype)
-                                        features = torch.cat([features, padding])
-                                    
-                                    # 存储嵌入表示
-                                    token_embeddings[i] = features
-                    except Exception as e:
-                        print(f"处理序列时出错: {e}")
-                    
-                    # 使用分类头处理整个批次的嵌入
-                    # 确保token_embeddings需要梯度
-                    token_embeddings = token_embeddings.detach().requires_grad_(True)
-                    logits = self.classifier(token_embeddings)
-                else:
-                    # 如果已经是浮点类型，直接使用
-                    logits = self.classifier(tokens)
+                                # 确保features是正确的数据类型
+                                features = features.to(device=device, dtype=model_dtype)
+                                
+                                # 截断或padding到正确的长度
+                                if len(features) > sequence_length:
+                                    features = features[:sequence_length]
+                                elif len(features) < sequence_length:
+                                    padding = torch.zeros(sequence_length - len(features), hidden_size, 
+                                                        device=device, dtype=model_dtype)
+                                    features = torch.cat([features, padding])
+                                
+                                # 存储嵌入表示
+                                token_embeddings[i] = features
+                except Exception as e:
+                    print(f"处理序列时出错: {e}")
+                
+                # 使用分类头处理整个批次的嵌入
+                # 确保token_embeddings需要梯度且数据类型正确
+                token_embeddings = token_embeddings.detach().requires_grad_(True)
+                token_embeddings = token_embeddings.to(dtype=model_dtype)
+                logits = self.classifier(token_embeddings)
                     
             elif "embeddings" in inputs:
                 embeddings = inputs["embeddings"].to(device=device, dtype=model_dtype)
@@ -160,10 +176,6 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 sequence_embeddings = torch.zeros(batch_size, sequence_length, hidden_size, 
                                                device=device, dtype=model_dtype)
                 
-                # 创建一个空的输出张量
-                logits = torch.zeros(batch_size, sequence_length, self.num_labels, 
-                                    device=device, dtype=model_dtype, requires_grad=True)
-                
                 try:
                     # 对每个序列进行处理
                     for i, seq in enumerate(sequences):
@@ -182,8 +194,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 else:
                                     features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
                                 
-                                # 确保features是浮点类型
-                                features = features.to(dtype=model_dtype)
+                                # 确保features是正确的数据类型
+                                features = features.to(device=device, dtype=model_dtype)
                                 
                                 # 截断或padding到正确的长度
                                 if len(features) > sequence_length:
@@ -199,8 +211,9 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     print(f"处理序列时出错: {e}")
                 
                 # 使用分类头处理整个批次的嵌入
-                # 确保sequence_embeddings需要梯度
+                # 确保sequence_embeddings需要梯度且数据类型正确
                 sequence_embeddings = sequence_embeddings.detach().requires_grad_(True)
+                sequence_embeddings = sequence_embeddings.to(dtype=model_dtype)
                 logits = self.classifier(sequence_embeddings)
                     
             else:
@@ -213,10 +226,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     raise ValueError("模型既没有ESM也没有BERT backbone")
                 
                 outputs = backbone(**inputs)
-                # 确保输出需要梯度
-                if not outputs[0].requires_grad:
-                    outputs = (outputs[0].detach().requires_grad_(True),) + outputs[1:]
-                logits = self.classifier(outputs[0])
+                # 确保输出需要梯度且数据类型正确
+                hidden_states = outputs[0].to(device=device, dtype=model_dtype)
+                if not hidden_states.requires_grad:
+                    hidden_states = hidden_states.detach().requires_grad_(True)
+                logits = self.classifier(hidden_states)
         
         return logits
     
@@ -299,3 +313,61 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         self.check_save_condition(log_dict["valid_acc"], mode="max")
 
         self.plot_valid_metrics_curve(log_dict)
+    
+    def init_optimizers(self):
+        """重写优化器初始化，确保包含分类头参数"""
+        import copy
+        copy_optimizer_kwargs = copy.deepcopy(self.optimizer_kwargs)
+        
+        # No decay for layer norm and bias
+        no_decay = ['LayerNorm.weight', 'bias']
+        weight_decay = copy_optimizer_kwargs.pop("weight_decay")
+
+        # 收集所有需要优化的参数
+        all_params = []
+        esm3_param_count = 0
+        
+        # 添加ESM3模型参数
+        if hasattr(self, 'model') and self.model is not None:
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    all_params.append((name, param))
+                    esm3_param_count += 1
+        
+        # 添加分类头参数
+        classifier_param_count = 0
+        if hasattr(self, 'classifier') and self.classifier is not None:
+            for name, param in self.classifier.named_parameters():
+                if param.requires_grad:
+                    full_name = f"classifier.{name}"
+                    all_params.append((full_name, param))
+                    classifier_param_count += 1
+        
+        # 按是否需要weight decay分组参数
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in all_params if not any(nd in n for nd in no_decay)],
+                "weight_decay": weight_decay,
+            },
+            {
+                "params": [p for n, p in all_params if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+            },
+        ]
+
+        # 创建优化器
+        optimizer_class = getattr(torch.optim, self.optimizer)
+        self.optimizer = optimizer_class(optimizer_grouped_parameters, **copy_optimizer_kwargs)
+        
+        # 初始化学习率调度器
+        if self.scheduler is not None:
+            from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
+            
+            if self.scheduler == "constant":
+                self.scheduler = ConstantLRScheduler(self.optimizer, **self.scheduler_kwargs)
+            elif self.scheduler == "cosine":
+                self.scheduler = CosineAnnealingLRScheduler(self.optimizer, **self.scheduler_kwargs)
+            elif self.scheduler == "esm2":
+                self.scheduler = Esm2LRScheduler(self.optimizer, **self.scheduler_kwargs)
+            else:
+                self.scheduler = None

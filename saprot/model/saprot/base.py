@@ -274,6 +274,7 @@ class SaprotBaseModel(AbstractModel):
             print(f"📊 模型配置信息: {self.model.config}")
 
         print(f"🎯 模型设备: {next(self.model.parameters()).device}")
+        print(f"🎯 模型数据类型: {next(self.model.parameters()).dtype}")
         print(f"🎯 模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
 
         if self.extra_config is None:

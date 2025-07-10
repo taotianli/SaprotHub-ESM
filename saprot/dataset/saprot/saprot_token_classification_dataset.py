@@ -133,7 +133,9 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                                 else:
                                     # 如果不是tensor，转换为tensor并处理
                                     # 在模型设备上创建tensor（GPU训练时直接在GPU上）
-                                    sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device)
+                                    # 确保数据类型与模型一致
+                                    model_dtype = torch.long  # ESM3 tokens应该是long类型
+                                    sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device, dtype=model_dtype)
                                     sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
                                     # print(f"[token分类数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                             else:
