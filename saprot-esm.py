@@ -1647,110 +1647,91 @@ def save_uploaded_file(button):
 
 # Protein property prediction
 def make_predictions(df, rows, num_labels, model_type, model_arg):
-  task_type = load_task_type_from_model(model_type, str(model_arg).split("\n")[0].strip())
-  original_task_type = task_type
-  task_type = task_type_dict[task_type]
-
-  if model_type == "Multi-models on SaprotHub":
-    #1. get adapter_list
-    repo_id_list = [repo_id.strip() for repo_id in model_arg.strip().split("\n")]
-    #2. download adapters
-    for repo_id in repo_id_list:
-      snapshot_download(repo_id=repo_id, repo_type="model", local_dir=ADAPTER_HOME / repo_id)
-    config_list = [EasyDict({'lora_config_path': ADAPTER_HOME / repo_id}) for repo_id in repo_id_list]
-
-    assert len(config_list) > 0, "Please choose at least one model!"
-    base_model = get_base_model(ADAPTER_HOME / config_list[0].lora_config_path)
-
-    lora_kwargs = EasyDict({
-      "is_trainable": False,
-      "num_lora": len(config_list),
-      "config_list": config_list
-    })
-
+  device = "cuda" if torch.cuda.is_available() else "cpu"
+  
+  if model_type == "Official ESM3 (1.4B)":
+    # 直接使用ESM3官方模型，目前仅支持嵌入生成
+    print("⚠️ 警告: 官方ESM3模型目前仅支持嵌入生成，不支持分类预测。")
+    print("📝 请使用 'Trained by yourself on ColabESM3' 选项来加载您训练的分类模型。")
+    return None, None
+    
   else:
+    # 加载训练好的ESM3分类模型
+    task_type = load_task_type_from_model(model_type, str(model_arg).split("\n")[0].strip())
+    original_task_type = task_type
+    task_type = task_type_dict[task_type]
+
     if model_type == "Shared by peers on SaprotHub":
       snapshot_download(repo_id=model_arg, repo_type="model", local_dir=ADAPTER_HOME / model_arg)
 
-    adapter_path = ADAPTER_HOME / model_arg
-    base_model = get_base_model(adapter_path)
-    lora_kwargs = {
-      "is_trainable": False,
-      "num_lora": 1,
-      "config_list": [{"lora_config_path": adapter_path}]
-    }
-
-  from saprot.config.config_dict import Default_config
-  config = copy.deepcopy(Default_config)
-
-  # task
-  if task_type in [ "classification", "token_classification", "pair_classification"]:
-    config.model.kwargs.num_labels = num_labels
-
-  # base model
-  config.model.model_py_path = model_type_dict[task_type]
-  config.model.kwargs.config_path = base_model
-
-  # lora
-  config.model.kwargs.lora_kwargs = lora_kwargs
-
-  # Load model
-  model = my_load_model(config.model)
-  # tokenizer = AutoTokenizer.from_pretrained(config.model.kwargs.config_path)  # ESM3不需要tokenizer
-  device = "cuda" if torch.cuda.is_available() else "cpu"
-  model.to(device)
-
-  # Start prediction
-  logits = []
-  pred_labels = []
-
-  if model_type == "Official ESM3 (1.4B)":
-    # ESM3模型的特殊处理（不使用tokenizer）
-    if task_type in ["pair_classification", "pair_regression"]:
-      for sa_seq_1, sa_seq_2 in tqdm(rows):
-        # ESM3对序列对的处理（需要实现ESM3特定的编码方式）
-        result_1 = encode_sequence_only(model, sa_seq_1, device)
-        result_2 = encode_sequence_only(model, sa_seq_2, device)
-        # 这里需要实现ESM3的预测逻辑
-        # 暂时跳过，因为ESM3主要用于embeddings生成
-        pass
+    model_path = ADAPTER_HOME / model_arg
+    
+    # 检查是否为新格式（分类头权重）
+    weight_files = list(model_path.glob("*.pt"))
+    if weight_files:
+      # 新格式：只有分类头权重
+      print(f"🔄 加载ESM3分类头权重: {weight_files[0].name}")
+      
+      # 创建ESM3分类模型实例
+      from saprot.config.config_dict import Default_config
+      config = copy.deepcopy(Default_config)
+      config.model.kwargs.num_labels = num_labels
+      config.model.model_py_path = model_type_dict[task_type]
+      config.model.kwargs.config_path = "esm3-open"  # 使用ESM3基础模型
+      
+      # 加载模型
+      model = my_load_model(config.model)
+      
+      # 加载分类头权重
+      model.load_checkpoint(str(weight_files[0]))
+      model.to(device)
+      model.eval()
+      
     else:
-      for sa_seq in tqdm(rows):
-        # ESM3对单序列的处理
-        result = encode_sequence_only(model, sa_seq, device)
-        # 这里需要实现ESM3的预测逻辑
-        # 暂时跳过，因为ESM3主要用于embeddings生成
-        pass
-  # else:
-  #   # 其他模型使用tokenizer的标准处理
-  #   if task_type in ["pair_classification", "pair_regression"]:
-  #     for sa_seq_1, sa_seq_2 in tqdm(rows):
-  #       input_1 = tokenizer(sa_seq_1, return_tensors="pt")
-  #       input_1 = {k: v.to(device) for k, v in input_1.items()}
-  #       input_2 = tokenizer(sa_seq_2, return_tensors="pt")
-  #       input_2 = {k: v.to(device) for k, v in input_2.items()}
+      # 旧格式：adapter权重（兼容性）
+      print("🔄 检测到旧格式adapter权重，使用兼容模式")
+      base_model = get_base_model(model_path)
+      lora_kwargs = {
+        "is_trainable": False,
+        "num_lora": 1,
+        "config_list": [{"lora_config_path": model_path}]
+      }
+      
+      from saprot.config.config_dict import Default_config
+      config = copy.deepcopy(Default_config)
+      config.model.kwargs.num_labels = num_labels
+      config.model.model_py_path = model_type_dict[task_type]
+      config.model.kwargs.config_path = base_model
+      config.model.kwargs.lora_kwargs = lora_kwargs
+      
+      model = my_load_model(config.model)
+      model.to(device)
+      model.eval()
 
-  #       with torch.no_grad():
-  #         pred = model(input_1, input_2)
+    # 开始预测
+    print(f"🎯 开始使用ESM3模型进行{original_task_type}预测...")
+    logits = []
+    pred_labels = []
+    
+    if task_type in ["pair_classification", "pair_regression"]:
+      print("⚠️ 暂不支持序列对预测任务")
+      return None, None
+    else:
+      for sa_seq in tqdm(rows, desc="预测中"):
+        # 对于ESM3模型，直接使用序列
+        with torch.no_grad():
+          pred = model(sa_seq, device=device)
 
-  #       if "regression" in task_type:
-  #         pred_labels.append(pred.item())
-  #       else:
-  #         logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
-  #         pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
-
-  #   else:
-  #     for sa_seq in tqdm(rows):
-  #       inputs = tokenizer(sa_seq, return_tensors="pt")
-  #       inputs = {k: v.to(device) for k, v in inputs.items()}
-  #       with torch.no_grad():
-  #         pred = model(inputs)
-
-  #       if "regression" in task_type:
-  #         pred_labels.append(pred.item())
-  #       else:
-  #         logits.append(pred[0].softmax(dim=-1).cpu().numpy().tolist())
-  #         pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
+        if "regression" in task_type:
+          pred_labels.append(pred.item())
+        else:
+          if isinstance(pred, torch.Tensor):
+            logits.append(pred.softmax(dim=-1).cpu().numpy().tolist())
+            pred_labels.append(pred.argmax(dim=-1).cpu().numpy().item())
+          else:
+            # 处理其他可能的返回格式
+            logits.append([1.0])  # 占位符
+            pred_labels.append(0)   # 占位符
 
   if "classification" in task_type:
     df["predicted_probabilities"] = logits
@@ -1774,30 +1755,49 @@ def load_data_type_from_model(model_type, model_arg):
   else:
     adapter_path = ADAPTER_HOME / model_arg
 
-  if model_type == "Shared by peers on SaprotHub":
-    snapshot_download(repo_id=model_arg, repo_type="model", local_dir=adapter_path)
+    if model_type == "Shared by peers on SaprotHub":
+      snapshot_download(repo_id=model_arg, repo_type="model", local_dir=adapter_path)
 
-  metadata_path = Path(adapter_path) / "metadata.json"
-  with open(metadata_path, 'r') as f:
-    metadata = json.load(f)
-    return metadata['training_data_type']
+    metadata_path = Path(adapter_path) / "metadata.json"
+    
+    if metadata_path.exists():
+      with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+        return metadata['training_data_type']
+    else:
+      # 新格式分类头权重，默认返回AA（氨基酸序列）
+      print("🔍 未找到metadata.json，假设数据类型为氨基酸序列(AA)")
+      return "AA"
 
 
 # Get task type that is compatible with the model
 def load_task_type_from_model(model_type, model_arg):
   try:
+    if model_type == "Official ESM3 (1.4B)":
+      return "Protein-level Classification"  # 默认任务类型
+      
     adapter_path = ADAPTER_HOME / model_arg
 
     if model_type == "Shared by peers on SaprotHub" or model_type == "Multi-models on SaprotHub":
       snapshot_download(repo_id=model_arg, repo_type="model", local_dir=adapter_path)
 
     metadata_path = Path(adapter_path) / "metadata.json"
-    with open(metadata_path, 'r') as f:
-      metadata = json.load(f)
-      return metadata['training_task_type']
+    
+    if metadata_path.exists():
+      with open(metadata_path, 'r') as f:
+        metadata = json.load(f)
+        return metadata['training_task_type']
+    else:
+      # 新格式分类头权重，尝试从权重文件名推断任务类型
+      weight_files = list(adapter_path.glob("*.pt"))
+      if weight_files:
+        print("🔍 未找到metadata.json，假设任务类型为蛋白质级分类")
+        return "Protein-level Classification"
+      else:
+        raise Exception("\033[31m无法确定模型任务类型，请检查模型文件!\033[0m")
 
   except Exception as e:
-    raise Exception("\033[31mPlease check your model input!\033[0m")
+    raise Exception(f"\033[31m加载模型信息失败: {str(e)}\033[0m")
 
 
 def generate_download_btn(path: str):
