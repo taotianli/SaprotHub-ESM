@@ -438,7 +438,13 @@ class SaprotRegressionModel(SaprotBaseModel):
                 with open(self.test_result_path, 'w') as w:
                     w.write("pred\ttarget\n")
                     for pred, target in zip(preds, targets):
-                        w.write(f"{pred.item()}\t{target.item()}\n")
+                        # 修复: 支持多元素Tensor，避免.item()报错
+                        pred_arr = pred.flatten().tolist()
+                        target_arr = target.flatten().tolist()
+                        # 如果是单元素，直接写；否则写成逗号分隔
+                        pred_str = str(pred_arr[0]) if len(pred_arr) == 1 else ','.join(map(str, pred_arr))
+                        target_str = str(target_arr[0]) if len(target_arr) == 1 else ','.join(map(str, target_arr))
+                        w.write(f"{pred_str}\t{target_str}\n")
         
         log_dict = self.get_log_dict("test")
 
@@ -561,7 +567,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 else:
                     print(f"❌ 在模型权重中未找到回归头参数")
             else:
-                print(f"❌ 不识别的权重文件格式")
+                print(f"❌ 不识别的权重文件格式，state_dict keys: {list(state_dict.keys())}")
                 
         except Exception as e:
             print(f"❌ 加载回归头权重失败: {str(e)}")
