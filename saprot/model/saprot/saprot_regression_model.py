@@ -450,6 +450,122 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.log_info(log_dict)
         self.reset_metrics("test")
 
+    def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
+        """
+        重写保存方法，只保存回归头权重而不是整个ESM3模型
+        """
+        import os
+        import torch
+        
+        try:
+            # 创建保存目录
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+            
+            # 只保存回归头的权重
+            if hasattr(self, 'regression_head') and self.regression_head is not None:
+                regression_head_state = self.regression_head.state_dict()
+                
+                # 创建保存的状态字典，只包含回归头
+                state_dict = {} if save_info is None else save_info.copy()
+                state_dict["regression_head"] = regression_head_state
+                state_dict["fixed_seq_length"] = self.fixed_seq_length
+                state_dict["task"] = "regression"
+                
+                # 计算权重文件大小
+                param_count = sum(p.numel() for p in self.regression_head.parameters())
+                # print(f"🔍 保存回归头权重:")
+                # print(f"  - 参数数量: {param_count:,}")
+                # print(f"  - 保存路径: {save_path}")
+                
+                if not save_weights_only:
+                    # 如果需要保存训练状态
+                    state_dict["global_step"] = self.step
+                    state_dict["epoch"] = self.epoch
+                    state_dict["best_value"] = getattr(self, "best_value", None)
+                    
+                    if hasattr(self, 'lr_schedulers') and self.lr_schedulers() is not None:
+                        state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
+                    
+                    if hasattr(self, 'optimizers') and self.optimizers() is not None:
+                        state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
+                
+                # 保存到文件
+                torch.save(state_dict, save_path)
+                
+                # 验证保存的文件大小
+                # saved_size = os.path.getsize(save_path) / (1024 * 1024)
+                # print(f"✅ 回归头权重保存成功: {saved_size:.2f} MB")
+                
+            else:
+                print("❌ 回归头不存在，无法保存")
+                raise ValueError("Regression head not found")
+                
+        except Exception as e:
+            print(f"❌ 保存回归头权重失败: {str(e)}")
+            # 尝试保存到当前目录作为备份
+            try:
+                fallback_path = os.path.join(os.getcwd(), 'regression_head_checkpoint.pt')
+                if hasattr(self, 'regression_head'):
+                    state_dict = {"regression_head": self.regression_head.state_dict()}
+                    torch.save(state_dict, fallback_path)
+                    print(f"💾 备用保存成功: {fallback_path}")
+            except Exception as e2:
+                print(f"❌ 备用保存也失败: {str(e2)}")
+                raise e
+
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """
+        加载回归头权重
+        """
+        import torch
+        import os
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            return
+        
+        try:
+            # 加载权重
+            state_dict = torch.load(checkpoint_path, map_location='cpu')
+            
+            # 验证是否为回归头权重文件
+            if "regression_head" in state_dict:
+                # 新格式：只包含回归头
+                regression_head_state = state_dict["regression_head"]
+                fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
+                
+                print(f"🔍 加载回归头权重:")
+                print(f"  - 文件: {checkpoint_path}")
+                print(f"  - 序列长度: {fixed_seq_length}")
+                
+                # 验证维度匹配
+                if fixed_seq_length == self.fixed_seq_length:
+                    self.regression_head.load_state_dict(regression_head_state)
+                    print(f"✅ 回归头权重加载成功")
+                else:
+                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
+                    
+            elif "model" in state_dict and any("regression_head" in k for k in state_dict["model"].keys()):
+                # 旧格式：包含整个模型，提取回归头部分
+                model_state = state_dict["model"]
+                regression_head_state = {
+                    k.replace("regression_head.", ""): v 
+                    for k, v in model_state.items() 
+                    if k.startswith("regression_head.")
+                }
+                if regression_head_state:
+                    self.regression_head.load_state_dict(regression_head_state)
+                    print(f"✅ 从完整模型权重中提取并加载回归头")
+                else:
+                    print(f"❌ 在模型权重中未找到回归头参数")
+            else:
+                print(f"❌ 不识别的权重文件格式")
+                
+        except Exception as e:
+            print(f"❌ 加载回归头权重失败: {str(e)}")
+
     def on_validation_epoch_end(self):
         log_dict = self.get_log_dict("valid")
 
