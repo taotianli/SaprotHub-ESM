@@ -3,7 +3,8 @@ import json
 import random
 
 from ..data_interface import register_dataset
-from transformers import AutoTokenizer, EsmTokenizer
+# transformers的tokenizer对ESM3不需要，ESM3使用自己的编码方式
+# from transformers import AutoTokenizer, EsmTokenizer
 from ..lmdb_dataset import *
 from esm.models.esm3 import ESM3
 from esm.sdk.api import ESMProtein

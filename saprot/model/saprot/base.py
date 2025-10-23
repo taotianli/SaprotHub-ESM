@@ -3,17 +3,22 @@ import os
 
 from typing import List, Dict
 from data.pdb2feature import batch_coords2feature
-from transformers import (
-    AutoConfig,
-    AutoTokenizer,
-    AutoModelForMaskedLM,
-    AutoModelForSequenceClassification,
-    AutoModelForTokenClassification,
-    EsmForMaskedLM,
-    EsmForSequenceClassification,
-    EsmTokenizer,
-    BertTokenizer,
-)
+
+# transformers库对ESM3完全不需要！
+# ESM3使用自己的模型架构和编码方式，不依赖HuggingFace的transformers
+# 原来的代码已经全部注释掉，这些导入完全没用
+# from transformers import (
+#     AutoConfig,
+#     AutoTokenizer,
+#     AutoModelForMaskedLM,
+#     AutoModelForSequenceClassification,
+#     AutoModelForTokenClassification,
+#     EsmForMaskedLM,
+#     EsmForSequenceClassification,
+#     EsmTokenizer,
+#     BertTokenizer,
+# )
+
 from easydict import EasyDict
 from ..abstract_model import AbstractModel
 
@@ -63,20 +68,49 @@ class SaprotBaseModel(AbstractModel):
         super().__init__(**kwargs)
         
         # After all initialization done, lora technique is applied if needed
-        # Temporarily disable LoRA for ESM3 compatibility
         if self.lora_kwargs is not None:
-            # print("警告: LoRA暂时禁用以兼容ESM3模型。如需使用LoRA，请手动配置适合ESM3架构的target_modules。")
-            self.lora_kwargs = None
-            # # No need to freeze backbone if LoRA is used
-            # self.freeze_backbone = False
-            # 
-            # self.lora_kwargs = EasyDict(lora_kwargs)
-            # self._init_lora()
+            # No need to freeze backbone if LoRA is used
+            self.freeze_backbone = False
+            
+            self.lora_kwargs = EasyDict(lora_kwargs)
+            self._init_lora()
         
         self.valid_metrics_list = {}
         self.valid_metrics_list['step'] = []
     
     def _init_lora(self):
+        # Check if this is an ESM3 model
+        from esm.models.esm3 import ESM3
+        is_esm3 = isinstance(self.model, ESM3)
+        
+        if is_esm3:
+            # Use ESM3 LoRA
+            print("🔧 Using ESM3 LoRA...")
+            from utils.esm3_lora import create_esm3_lora_model
+            
+            # Get LoRA configuration
+            r = getattr(self.lora_kwargs, "r", 16)
+            lora_alpha = getattr(self.lora_kwargs, "lora_alpha", 32.0)
+            lora_dropout = getattr(self.lora_kwargs, "lora_dropout", 0.1)
+            target_modules = getattr(self.lora_kwargs, "target_modules", None)
+            
+            # Wrap model with LoRA
+            self.model = create_esm3_lora_model(
+                esm3_model=self.model,
+                target_modules=target_modules,
+                r=r,
+                alpha=lora_alpha,
+                dropout=lora_dropout
+            )
+            
+            print("✅ ESM3 LoRA initialized successfully")
+            self.model.print_trainable_parameters()
+            
+            # After LoRA model is initialized, add trainable parameters to optimizer
+            self.init_optimizers()
+            return
+        
+        # Original PEFT-based LoRA for non-ESM3 models
         from peft import (
             LoraConfig,
             # PeftModelForSequenceClassification,
