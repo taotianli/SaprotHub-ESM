@@ -232,13 +232,6 @@ class SaprotPairClassificationDataset(LMDBDataset):
                 # 回退到序列处理
                 inputs = {"sequences_1": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings_1],
                          "sequences_2": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings_2]}
-        
-        elif self.tokenizer is not None:
-            # 使用传统tokenizer处理
-            # print(f"[pair分类数据集调试] 使用传统tokenizer处理批处理")
-            encoder_info_1 = self.tokenizer.batch_encode_plus(embeddings_1, return_tensors='pt', padding=True)
-            encoder_info_2 = self.tokenizer.batch_encode_plus(embeddings_2, return_tensors='pt', padding=True)
-            inputs = {"inputs_1": encoder_info_1, "inputs_2": encoder_info_2}
         else:
             # 包含原始序列（编码失败的情况）
             # print(f"[pair分类数据集调试] 批处理包含原始序列，将由模型处理")
