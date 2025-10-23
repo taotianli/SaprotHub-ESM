@@ -2783,18 +2783,15 @@ def choose_training_task():
       config.model.kwargs.extra_config.attention_probs_dropout_prob=0
       config.model.kwargs.extra_config.hidden_dropout_prob=0
 
-    # 禁用LoRA - ESM3已经可以直接加载权重，不需要LoRA
-    # config.model.kwargs.lora_kwargs = EasyDict({
-    #   "is_trainable": True,
-    #   "num_lora": 1,
-    #   "r": r,
-    #   "lora_dropout": lora_dropout,
-    #   "lora_alpha": lora_alpha,
-    #   "config_list": []})
-    # if continue_learning:
-    #   config.model.kwargs.lora_kwargs.config_list.append({"lora_config_path": adapter_path})
-    
-    config.model.kwargs.lora_kwargs = None  # 完全禁用LoRA
+    config.model.kwargs.lora_kwargs = EasyDict({
+      "is_trainable": True,
+      "num_lora": 1,
+      "r": r,
+      "lora_dropout": lora_dropout,
+      "lora_alpha": lora_alpha,
+      "config_list": []})
+    if continue_learning:
+      config.model.kwargs.lora_kwargs.config_list.append({"lora_config_path": adapter_path})
 
     #####################################################################
     #            Dataset config              #
@@ -3458,11 +3455,12 @@ def choose_pred_task():
   #   "optimized for that scaffold."
   #   ), layout=Layout(width=WIDTH))
 
-  repr_pred = Button(description='Obtain protein-level embeddings', layout=Layout(width='500px', height='30px'), button_style="info")
-  repr_intro = HTML(markdown.markdown(
-    f"The Protein Embedding section enables extraction of sequence or structure embeddings using either "
-    "standard Saprot models or custom fine-tuned models for specialized analysis tasks."
-    ), layout=Layout(width=WIDTH))
+  # 暂时注释掉 obtain protein-level embeddings 按钮
+  # repr_pred = Button(description='Obtain protein-level embeddings', layout=Layout(width='500px', height='30px'), button_style="info")
+  # repr_intro = HTML(markdown.markdown(
+  #   f"The Protein Embedding section enables extraction of sequence or structure embeddings using either "
+  #   "standard Saprot models or custom fine-tuned models for specialized analysis tasks."
+  #   ), layout=Layout(width=WIDTH))
 
   back_btn = Button(description='Go back', layout=Layout(width='500px', height='30px'))
 
@@ -3482,9 +3480,10 @@ def choose_pred_task():
       # design_pred,
       # design_intro,
       # sep_hint,
-      repr_pred,
-      repr_intro,
-      sep_hint,
+      # 暂时注释掉 obtain protein-level embeddings 相关项目
+      # repr_pred,
+      # repr_intro,
+      # sep_hint,
       # back_btn
       ]
 

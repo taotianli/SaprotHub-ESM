@@ -87,7 +87,7 @@ class SaprotBaseModel(AbstractModel):
             # Use ESM3 LoRA
             print("🔧 Using ESM3 LoRA...")
             # 使用绝对导入，因为saprot包已安装
-            from utils.esm3_lora import create_esm3_lora_model
+            from saprot.utils.esm3_lora import create_esm3_lora_model
             
             # Get LoRA configuration
             r = getattr(self.lora_kwargs, "r", 16)
