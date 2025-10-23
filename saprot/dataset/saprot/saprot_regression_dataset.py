@@ -3,9 +3,9 @@ import json
 import random
 
 from ..data_interface import register_dataset
-from transformers import AutoTokenizer, EsmTokenizer	
+# transformers的tokenizer对ESM3不需要，ESM3使用自己的编码方式
+# from transformers import AutoTokenizer, EsmTokenizer	
 from ..lmdb_dataset import *
-from utils.others import setup_seed
 from esm.models.esm3 import ESM3
 from esm.sdk.api import ESMProtein
 
@@ -52,19 +52,10 @@ class SaprotRegressionDataset(LMDBDataset):
 		kwargs['dataloader_kwargs']['num_workers'] = 0
 		
 		super().__init__(**kwargs)
-		
 		# Don't initialize ESM3 model here to avoid multiprocessing issues
 		# It will be initialized in collate_fn or passed from the model
 		self.esm_model = None
 		self.model_device = 'cpu'  # 默认CPU，会在set_esm_model时更新
-		
-		# Only initialize tokenizer if provided and not using ESM3
-		if tokenizer is not None:
-			self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-			self.is_saprot_model = 'saprot' in tokenizer.lower() if isinstance(tokenizer, str) else False
-		else:
-			self.tokenizer = None
-			self.is_saprot_model = False  # ESM3 doesn't need saprot tokenizer
 		
 		self.max_length = max_length
 		self.fixed_seq_length = fixed_seq_length
@@ -73,6 +64,8 @@ class SaprotRegressionDataset(LMDBDataset):
 		self.mask_struc_ratio = mask_struc_ratio
 		self.mask_seed = mask_seed
 		self.plddt_threshold = plddt_threshold
+
+		self.is_saprot_model = True  # Always true for ESM3
 
 	def set_esm_model(self, esm_model):
 		"""Set the ESM3 model for encoding. This should be called from the main process."""
@@ -108,22 +101,22 @@ class SaprotRegressionDataset(LMDBDataset):
 		if isinstance(seq, list):
 			seq = "".join(seq)
 		
+		# Apply masking if needed (simplified for ESM3)
+		if self.mask_struc_ratio is not None:
+			# Simple random masking for compatibility
+			random.seed(self.mask_seed + index)  # Add index to make it deterministic per sample
+			seq_list = list(seq)
+			mask_num = int(len(seq_list) * self.mask_struc_ratio)
+			mask_indices = random.sample(range(len(seq_list)), mask_num)
+			for idx in mask_indices:
+				seq_list[idx] = 'X'  # Use X for masked tokens
+			seq = "".join(seq_list)
+		
 		# 在主线程中进行ESM3编码
 		try:
 			if self.esm_model is not None:
 				# 使用ESM3模型编码sequence
 				# print(f"[回归数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-				
-				# Apply masking if needed (simplified for ESM3)
-				if self.mask_struc_ratio is not None:
-					# Simple random masking for compatibility
-					random.seed(self.mask_seed + index)  # Add index to make it deterministic per sample
-					seq_list = list(seq)
-					mask_num = int(len(seq_list) * self.mask_struc_ratio)
-					mask_indices = random.sample(range(len(seq_list)), mask_num)
-					for idx in mask_indices:
-						seq_list[idx] = 'X'  # Use X for masked tokens
-					seq = "".join(seq_list)
 				
 				# 创建ESMProtein对象并编码
 				protein = ESMProtein(sequence=seq)
@@ -164,49 +157,7 @@ class SaprotRegressionDataset(LMDBDataset):
 						sequence_embedding = seq
 			else:
 				# print(f"[回归数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-				# print(f"[回归数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，使用传统tokenizer处理")
-				
-				# 使用传统tokenizer处理 (如果有的话)
-				if self.tokenizer is not None:
-					if self.is_saprot_model:
-						processed_seq = []
-						for aa in seq:
-							processed_seq.append(aa + "#")
-						seq = processed_seq
-			
-					seq = " ".join(seq)
-						
-					# Mask structure tokens
-					if self.mask_struc_ratio is not None:
-						tokens = self.tokenizer.tokenize(seq)
-						mask_candi = [i for i, t in enumerate(tokens) if t[-1] != "#"]
-
-						# Randomly shuffle the mask candidates and set seed to ensure mask is consistent
-						setup_seed(self.mask_seed)
-						random.shuffle(mask_candi)
-
-						# Mask first n structure tokens
-						mask_num = int(len(mask_candi) * self.mask_struc_ratio)
-						for i in range(mask_num):
-							idx = mask_candi[i]
-							tokens[idx] = tokens[idx][:-1] + "#"
-
-						seq = "".join(tokens)
-			
-					# Mask structure tokens with pLDDT < threshold
-					if self.plddt_threshold is not None:
-						plddt = entry["plddt"]
-						tokens = self.tokenizer.tokenize(seq)
-						seq = ""
-						for token, score in zip(tokens, plddt):
-							if score < self.plddt_threshold:
-								seq += token[:-1] + "#"
-							else:
-								seq += token
-
-					tokens = self.tokenizer.tokenize(seq)[:self.max_length]
-					seq = " ".join(tokens)
-				
+				# print(f"[回归数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
 				# 返回原始序列，让模型处理
 				sequence_embedding = seq
 		except Exception as e:
@@ -271,12 +222,6 @@ class SaprotRegressionDataset(LMDBDataset):
 				# print(f"[回归数据集调试] ❌ 堆叠tokens失败: {str(e)}")
 				# 回退到序列处理
 				inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings]}
-		
-		elif self.tokenizer is not None:
-			# 使用传统tokenizer处理
-			# print(f"[回归数据集调试] 使用传统tokenizer处理批处理")
-			encoder_info = self.tokenizer.batch_encode_plus(embeddings, return_tensors='pt', padding=True)
-			inputs = {"inputs": encoder_info}
 		else:
 			# 包含原始序列（编码失败的情况）
 			# print(f"[回归数据集调试] 批处理包含原始序列，将由模型处理")

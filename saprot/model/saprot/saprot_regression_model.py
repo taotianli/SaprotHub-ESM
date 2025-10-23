@@ -1,6 +1,11 @@
+import os
+import torch
 import torch.distributed as dist
 import torchmetrics
-import torch
+
+# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
 
 from ..model_interface import register_model
 from .base import SaprotBaseModel
@@ -36,10 +41,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 f"{stage}_R2": torchmetrics.R2Score(),
                 f"{stage}_pearson": torchmetrics.PearsonCorrCoef()}
 
-    def setup(self, stage=None):
-        """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
-        super().setup(stage)
-        # print("回归模型setup完成，将在训练开始时设置ESM3模型到数据集")
+    # setup方法已移除，不再需要PyTorch Lightning的setup
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
@@ -401,28 +403,18 @@ class SaprotRegressionModel(SaprotBaseModel):
             lr_scheduler_cls = ConstantLRScheduler
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
+        
+        # print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
+        # print(f"✅ 学习率调度器: {lr_scheduler_name}")
+        # print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
 
-    def training_step(self, batch, batch_idx):
-        """重写训练步骤，添加详细的梯度监控"""
-        inputs, labels = batch
-        
-        # 前向传播
-        outputs = self(**inputs)
-        
-        # 计算损失
-        loss = self.loss_func('train', outputs, labels)
-        
-        # print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
-        
-        self.log("loss", loss, prog_bar=True)
-        return loss
-
-    def on_before_optimizer_step(self, optimizer):
-        """在优化器步骤之前检查梯度"""
-        # 调用父类方法
-        super().on_before_optimizer_step(optimizer)
+    # training_step和on_before_optimizer_step方法已移除
+    # 这些功能现在由纯PyTorch训练循环处理
 
     def on_test_epoch_end(self):
+        # 打印回归头权重信息
+        # self._print_regression_head_weights("测试")
+        
         if self.test_result_path is not None:
             from torchmetrics.utilities.distributed import gather_all_tensors
             
@@ -458,7 +450,7 @@ class SaprotRegressionModel(SaprotBaseModel):
 
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
-        重写保存方法，只保存回归头权重而不是整个ESM3模型
+        重写保存方法，保存回归头权重和LoRA权重（如果使用了LoRA）
         """
         import os
         import torch
@@ -469,44 +461,63 @@ class SaprotRegressionModel(SaprotBaseModel):
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
             
-            # 只保存回归头的权重
+            # 创建保存的状态字典
+            state_dict = {} if save_info is None else save_info.copy()
+            state_dict["fixed_seq_length"] = self.fixed_seq_length
+            state_dict["task"] = "regression"
+            
+            total_params = 0
+            
+            # 保存回归头的权重
             if hasattr(self, 'regression_head') and self.regression_head is not None:
                 regression_head_state = self.regression_head.state_dict()
-                
-                # 创建保存的状态字典，只包含回归头
-                state_dict = {} if save_info is None else save_info.copy()
                 state_dict["regression_head"] = regression_head_state
-                state_dict["fixed_seq_length"] = self.fixed_seq_length
-                state_dict["task"] = "regression"
                 
-                # 计算权重文件大小
                 param_count = sum(p.numel() for p in self.regression_head.parameters())
+                total_params += param_count
                 print(f"🔍 保存回归头权重:")
                 print(f"  - 参数数量: {param_count:,}")
-                print(f"  - 保存路径: {save_path}")
+            
+            # 检查是否使用了LoRA，如果是则保存LoRA参数
+            from saprot.utils.esm3_lora import ESM3LoRAWrapper
+            if isinstance(self.model, ESM3LoRAWrapper):
+                lora_state = self.model.get_lora_state_dict()
+                state_dict["lora"] = lora_state
+                state_dict["lora_config"] = {
+                    "r": self.model.r,
+                    "alpha": self.model.alpha,
+                    "dropout": self.model.dropout,
+                    "target_modules": self.model.target_modules
+                }
                 
-                if not save_weights_only:
-                    # 如果需要保存训练状态
-                    state_dict["global_step"] = self.step
-                    state_dict["epoch"] = self.epoch
-                    state_dict["best_value"] = getattr(self, "best_value", None)
-                    
-                    if hasattr(self, 'lr_schedulers') and self.lr_schedulers() is not None:
-                        state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
-                    
-                    if hasattr(self, 'optimizers') and self.optimizers() is not None:
-                        state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
+                lora_param_count = sum(p.numel() for p in lora_state.values())
+                total_params += lora_param_count
+                print(f"🔍 保存LoRA权重:")
+                print(f"  - LoRA参数数量: {lora_param_count:,}")
+                print(f"  - LoRA rank: {self.model.r}")
+                print(f"  - Target modules: {len(self.model.lora_layers)}")
+            
+            print(f"  - 总参数数量: {total_params:,}")
+            print(f"  - 保存路径: {save_path}")
+            
+            if not save_weights_only:
+                # 如果需要保存训练状态
+                state_dict["global_step"] = self.step
+                state_dict["epoch"] = self.epoch
+                state_dict["best_value"] = getattr(self, "best_value", None)
                 
-                # 保存到文件
-                torch.save(state_dict, save_path)
+                if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                    state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
                 
-                # 验证保存的文件大小
-                saved_size = os.path.getsize(save_path) / (1024 * 1024)
-                print(f"✅ 回归头权重保存成功: {saved_size:.2f} MB")
-                
-            else:
-                print("❌ 回归头不存在，无法保存")
-                raise ValueError("Regression head not found")
+                if hasattr(self, 'optimizer') and self.optimizer is not None:
+                    state_dict["optimizer"] = self.optimizer.state_dict()
+            
+            # 保存到文件
+            torch.save(state_dict, save_path)
+            
+            # 验证保存的文件大小
+            saved_size = os.path.getsize(save_path) / (1024 * 1024)
+            print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
             print(f"❌ 保存回归头权重失败: {str(e)}")
@@ -548,11 +559,11 @@ class SaprotRegressionModel(SaprotBaseModel):
             
             # 验证是否为回归头权重文件
             if "regression_head" in state_dict:
-                # 新格式：只包含回归头
+                # 新格式：包含回归头（和可能的LoRA权重）
                 regression_head_state = state_dict["regression_head"]
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                print(f"🔍 加载回归头权重:")
+                print(f"🔍 加载权重:")
                 print(f"  - 文件: {checkpoint_path}")
                 print(f"  - 序列长度: {fixed_seq_length}")
                 
@@ -560,6 +571,23 @@ class SaprotRegressionModel(SaprotBaseModel):
                 if fixed_seq_length == self.fixed_seq_length:
                     self.regression_head.load_state_dict(regression_head_state)
                     print(f"✅ 回归头权重加载成功")
+                    
+                    # 检查是否有LoRA权重
+                    if "lora" in state_dict:
+                        from saprot.utils.esm3_lora import ESM3LoRAWrapper
+                        if isinstance(self.model, ESM3LoRAWrapper):
+                            lora_state = state_dict["lora"]
+                            lora_config = state_dict.get("lora_config", {})
+                            
+                            print(f"🔍 加载LoRA权重:")
+                            print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
+                            print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
+                            
+                            self.model.load_lora_state_dict(lora_state)
+                            print(f"✅ LoRA权重加载成功")
+                        else:
+                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                    
                 else:
                     print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
                     
@@ -577,12 +605,15 @@ class SaprotRegressionModel(SaprotBaseModel):
                 else:
                     print(f"❌ 在模型权重中未找到回归头参数")
             else:
-                print(f"❌ 不识别的权重文件格式，state_dict keys: {list(state_dict.keys())}")
+                print(f"❌ 不识别的权重文件格式")
                 
         except Exception as e:
             print(f"❌ 加载回归头权重失败: {str(e)}")
 
     def on_validation_epoch_end(self):
+        # 打印回归头权重信息
+        # self._print_regression_head_weights("验证")
+        
         log_dict = self.get_log_dict("valid")
 
         # if dist.get_rank() == 0:
@@ -592,3 +623,68 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.check_save_condition(log_dict["valid_loss"], mode="min")
         
         self.plot_valid_metrics_curve(log_dict)
+
+    def on_train_epoch_end(self):
+        """训练epoch结束时的回调"""
+        super().on_train_epoch_end()  # 调用父类方法
+        # 打印回归头权重信息
+        # self._print_regression_head_weights("训练")
+
+    def _print_regression_head_weights(self, stage_name):
+        """打印回归头权重统计信息"""
+        pass
+
+    def _check_optimizer_state(self):
+        """检查优化器状态以诊断训练问题"""
+        if hasattr(self, 'optimizer'):
+            # print("\n=== 优化器状态诊断 ===")
+            
+            # 检查学习率
+            current_lr = self.optimizer.param_groups[0]['lr']
+            # print(f"当前学习率: {current_lr}")
+            
+            if current_lr == 0:
+                # print("❌ 学习率为0，这会阻止参数更新!")
+                pass
+            elif current_lr < 1e-8:
+                # print("⚠️  学习率非常小，可能导致缓慢的收敛")
+                pass
+            
+            # 检查回归头参数是否在优化器中
+            regression_head_param_ids = {id(p) for p in self.regression_head.parameters()}
+            optimizer_param_ids = set()
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    optimizer_param_ids.add(id(param))
+            
+            missing_params = regression_head_param_ids - optimizer_param_ids
+            if missing_params:
+                # print("❌ 回归头参数不在优化器中!")
+                pass
+            else:
+                # print("✅ 回归头参数已在优化器中")
+                pass
+            
+            # 检查梯度
+            total_grad_norm = 0.0
+            param_count = 0
+            for param_group in self.optimizer.param_groups:
+                for param in param_group['params']:
+                    if param.grad is not None:
+                        total_grad_norm += param.grad.norm().item() ** 2
+                        param_count += 1
+            
+            if param_count > 0:
+                total_grad_norm = total_grad_norm ** 0.5
+                # print(f"总梯度范数: {total_grad_norm:.6f}")
+                # print(f"有梯度的参数数: {param_count}")
+            else:
+                # print("❌ 没有参数有梯度!")
+                pass
+            
+            # print("=" * 30)
+        pass
+
+    def _verify_regression_head_in_optimizer(self):
+        """验证回归头参数是否包含在优化器中"""
+        pass
