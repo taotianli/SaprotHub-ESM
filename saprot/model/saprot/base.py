@@ -532,7 +532,12 @@ class SaprotBaseModel(AbstractModel):
             ax = []
             self.valid_metrics_list['step'].append(int(self.step))
             for idx, metric in enumerate(log_dict.keys()):
-                value = torch.nan if log_dict[metric] is None else log_dict[metric].detach().cpu().item()
+                if log_dict[metric] is None:
+                    value = torch.nan
+                elif isinstance(log_dict[metric], torch.Tensor):
+                    value = log_dict[metric].detach().cpu().item()
+                else:
+                    value = float(log_dict[metric])
                 
                 if metric in self.valid_metrics_list:
                     self.valid_metrics_list[metric].append(value)
