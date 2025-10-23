@@ -2774,7 +2774,7 @@ def choose_training_task():
     config.model.kwargs.load_pretrained = True  # 确保加载预训练权重
     # config.dataset.kwargs.tokenizer = base_model  # ESM3不需要tokenizer
 
-    print(f"使用ESM3模型，将跳过tokenizer加载")
+    # ESM3使用自己的编码方式，不需要HuggingFace tokenizer
 
     config.model.save_path = str(ADAPTER_HOME / "Local" / f"{task_type_value}" / model_name)
 
@@ -2843,11 +2843,9 @@ def choose_training_task():
           esm3_csv_path = str(csv_dataset_path).replace('.csv', '_esm3.csv')
           if os.path.exists(esm3_csv_path):
             csv_dataset_path = esm3_csv_path
-            print(f"使用ESM3原始序列数据: {csv_dataset_path}")
           else:
             # 如果没有ESM3版本，直接使用原始CSV
             csv_dataset_path = tmp_path
-            print(f"直接使用原始CSV数据: {csv_dataset_path}")
 
         # df = pd.read_csv(csv_dataset_path)
         # print(df)
