@@ -2783,15 +2783,18 @@ def choose_training_task():
       config.model.kwargs.extra_config.attention_probs_dropout_prob=0
       config.model.kwargs.extra_config.hidden_dropout_prob=0
 
-    config.model.kwargs.lora_kwargs = EasyDict({
-      "is_trainable": True,
-      "num_lora": 1,
-      "r": r,
-      "lora_dropout": lora_dropout,
-      "lora_alpha": lora_alpha,
-      "config_list": []})
-    if continue_learning:
-      config.model.kwargs.lora_kwargs.config_list.append({"lora_config_path": adapter_path})
+    # 禁用LoRA - ESM3已经可以直接加载权重，不需要LoRA
+    # config.model.kwargs.lora_kwargs = EasyDict({
+    #   "is_trainable": True,
+    #   "num_lora": 1,
+    #   "r": r,
+    #   "lora_dropout": lora_dropout,
+    #   "lora_alpha": lora_alpha,
+    #   "config_list": []})
+    # if continue_learning:
+    #   config.model.kwargs.lora_kwargs.config_list.append({"lora_config_path": adapter_path})
+    
+    config.model.kwargs.lora_kwargs = None  # 完全禁用LoRA
 
     #####################################################################
     #            Dataset config              #
