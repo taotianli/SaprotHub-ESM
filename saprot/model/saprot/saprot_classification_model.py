@@ -518,7 +518,7 @@ class SaprotClassificationModel(SaprotBaseModel):
 
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
-        重写保存方法，只保存分类头权重而不是整个ESM3模型
+        重写保存方法，保存分类头权重和LoRA权重（如果使用了LoRA）
         """
         import os
         import torch
@@ -529,45 +529,64 @@ class SaprotClassificationModel(SaprotBaseModel):
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
             
-            # 只保存分类头的权重
+            # 创建保存的状态字典
+            state_dict = {} if save_info is None else save_info.copy()
+            state_dict["num_labels"] = self.num_labels
+            state_dict["fixed_seq_length"] = self.fixed_seq_length
+            state_dict["task"] = "classification"
+            
+            total_params = 0
+            
+            # 保存分类头的权重
             if hasattr(self, 'classification_head') and self.classification_head is not None:
                 classification_head_state = self.classification_head.state_dict()
-                
-                # 创建保存的状态字典，只包含分类头
-                state_dict = {} if save_info is None else save_info.copy()
                 state_dict["classification_head"] = classification_head_state
-                state_dict["num_labels"] = self.num_labels
-                state_dict["fixed_seq_length"] = self.fixed_seq_length
-                state_dict["task"] = "classification"
                 
-                # 计算权重文件大小
                 param_count = sum(p.numel() for p in self.classification_head.parameters())
+                total_params += param_count
                 print(f"🔍 保存分类头权重:")
                 print(f"  - 参数数量: {param_count:,}")
-                print(f"  - 保存路径: {save_path}")
+            
+            # 检查是否使用了LoRA，如果是则保存LoRA参数
+            from saprot.utils.esm3_lora import ESM3LoRAWrapper
+            if isinstance(self.model, ESM3LoRAWrapper):
+                lora_state = self.model.get_lora_state_dict()
+                state_dict["lora"] = lora_state
+                state_dict["lora_config"] = {
+                    "r": self.model.r,
+                    "alpha": self.model.alpha,
+                    "dropout": self.model.dropout,
+                    "target_modules": self.model.target_modules
+                }
                 
-                if not save_weights_only:
-                    # 如果需要保存训练状态
-                    state_dict["global_step"] = self.step
-                    state_dict["epoch"] = self.epoch
-                    state_dict["best_value"] = getattr(self, "best_value", None)
-                    
-                    if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
-                        state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
-                    
-                    if hasattr(self, 'optimizer') and self.optimizer is not None:
-                        state_dict["optimizer"] = self.optimizer.state_dict()
+                lora_param_count = sum(p.numel() for p in lora_state.values())
+                total_params += lora_param_count
+                print(f"🔍 保存LoRA权重:")
+                print(f"  - LoRA参数数量: {lora_param_count:,}")
+                print(f"  - LoRA rank: {self.model.r}")
+                print(f"  - Target modules: {len(self.model.lora_layers)}")
+            
+            print(f"  - 总参数数量: {total_params:,}")
+            print(f"  - 保存路径: {save_path}")
+            
+            if not save_weights_only:
+                # 如果需要保存训练状态
+                state_dict["global_step"] = self.step
+                state_dict["epoch"] = self.epoch
+                state_dict["best_value"] = getattr(self, "best_value", None)
                 
-                # 保存到文件
-                torch.save(state_dict, save_path)
+                if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                    state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
                 
-                # 验证保存的文件大小
-                saved_size = os.path.getsize(save_path) / (1024 * 1024)
-                print(f"✅ 分类头权重保存成功: {saved_size:.2f} MB")
-                
-            else:
-                print("❌ 分类头不存在，无法保存")
-                raise ValueError("Classification head not found")
+                if hasattr(self, 'optimizer') and self.optimizer is not None:
+                    state_dict["optimizer"] = self.optimizer.state_dict()
+            
+            # 保存到文件
+            torch.save(state_dict, save_path)
+            
+            # 验证保存的文件大小
+            saved_size = os.path.getsize(save_path) / (1024 * 1024)
+            print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
             print(f"❌ 保存分类头权重失败: {str(e)}")
@@ -609,12 +628,12 @@ class SaprotClassificationModel(SaprotBaseModel):
             
             # 验证是否为分类头权重文件
             if "classification_head" in state_dict:
-                # 新格式：只包含分类头
+                # 新格式：包含分类头（和可能的LoRA权重）
                 classification_head_state = state_dict["classification_head"]
                 num_labels = state_dict.get("num_labels", self.num_labels)
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                print(f"🔍 加载分类头权重:")
+                print(f"🔍 加载权重:")
                 print(f"  - 文件: {checkpoint_path}")
                 print(f"  - 标签数: {num_labels}")
                 print(f"  - 序列长度: {fixed_seq_length}")
@@ -623,6 +642,23 @@ class SaprotClassificationModel(SaprotBaseModel):
                 if num_labels == self.num_labels and fixed_seq_length == self.fixed_seq_length:
                     self.classification_head.load_state_dict(classification_head_state)
                     print(f"✅ 分类头权重加载成功")
+                    
+                    # 检查是否有LoRA权重
+                    if "lora" in state_dict:
+                        from saprot.utils.esm3_lora import ESM3LoRAWrapper
+                        if isinstance(self.model, ESM3LoRAWrapper):
+                            lora_state = state_dict["lora"]
+                            lora_config = state_dict.get("lora_config", {})
+                            
+                            print(f"🔍 加载LoRA权重:")
+                            print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
+                            print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
+                            
+                            self.model.load_lora_state_dict(lora_state)
+                            print(f"✅ LoRA权重加载成功")
+                        else:
+                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                    
                 else:
                     print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, {self.num_labels}), 实际({fixed_seq_length}, {num_labels})")
                     
