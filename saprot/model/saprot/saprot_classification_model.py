@@ -6,9 +6,30 @@ from torch.nn.functional import cross_entropy
 os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
 os.environ['DISABLE_TELEMETRY'] = '1'
 
-# 只导入需要的metric，避免导入torchmetrics.functional.text模块
-# 该模块会触发transformers和accelerate的导入
-from torchmetrics.classification import Accuracy
+# 自定义Accuracy实现，避免导入torchmetrics（会触发accelerate/numpy兼容性问题）
+class SimpleAccuracy:
+    """简单的准确率计算，替代torchmetrics.Accuracy"""
+    def __init__(self, task="multiclass", num_classes=2):
+        self.task = task
+        self.num_classes = num_classes
+        self.correct = 0
+        self.total = 0
+    
+    def update(self, preds, target):
+        """更新统计"""
+        self.correct += (preds == target).sum().item()
+        self.total += target.numel()
+    
+    def compute(self):
+        """计算准确率"""
+        if self.total == 0:
+            return 0.0
+        return self.correct / self.total
+    
+    def reset(self):
+        """重置统计"""
+        self.correct = 0
+        self.total = 0
 
 from ..model_interface import register_model
 from .base import SaprotBaseModel
@@ -59,13 +80,13 @@ class SaprotClassificationModel(SaprotBaseModel):
         # print("优化器重新初始化完成")
         
     def initialize_metrics(self, stage):
-        # For newer versions of torchmetrics, need to specify task type
+        # 使用自定义的SimpleAccuracy，避免torchmetrics的依赖问题
         if self.num_labels == 2:
             task = "binary"
         else:
             task = "multiclass"
         
-        return {f"{stage}_acc": Accuracy(task=task, num_classes=self.num_labels)}
+        return {f"{stage}_acc": SimpleAccuracy(task=task, num_classes=self.num_labels)}
 
     # setup方法已移除，不再需要PyTorch Lightning的setup
 
