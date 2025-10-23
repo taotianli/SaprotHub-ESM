@@ -106,6 +106,9 @@ class PurePyTorchTrainer:
             # 验证阶段
             if val_dataloader is not None:
                 model.eval()
+                # 同步 model.step 与 trainer.global_step
+                if hasattr(model, 'step'):
+                    model.step = self.global_step
                 val_metrics = self._validate_epoch(model, val_dataloader)
                 print(f"验证指标: {val_metrics}")
                 

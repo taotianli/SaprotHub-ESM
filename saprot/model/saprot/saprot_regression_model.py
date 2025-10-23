@@ -528,6 +528,16 @@ class SaprotRegressionModel(SaprotBaseModel):
         import torch
         import os
         
+        # 如果是目录，构造完整的文件路径
+        if os.path.isdir(checkpoint_path):
+            basename = os.path.basename(checkpoint_path)
+            checkpoint_file = os.path.join(checkpoint_path, f"{basename}.pt")
+            if os.path.exists(checkpoint_file):
+                checkpoint_path = checkpoint_file
+            else:
+                print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                return
+        
         if not os.path.exists(checkpoint_path):
             print(f"❌ 权重文件不存在: {checkpoint_path}")
             return
