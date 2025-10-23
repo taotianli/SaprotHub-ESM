@@ -407,6 +407,12 @@ class SaprotPairClassificationModel(SaprotBaseModel):
 
             # Reset train metrics
             self.reset_metrics("train")
+        elif stage == "valid":
+            # 收集验证损失用于epoch结束时计算平均值
+            self.valid_outputs.append(loss.detach())
+        elif stage == "test":
+            # 收集测试损失用于epoch结束时计算平均值
+            self.test_outputs.append(loss.detach())
 
         return loss
 
@@ -499,7 +505,10 @@ class SaprotPairClassificationModel(SaprotBaseModel):
 
     def on_test_epoch_end(self):
         log_dict = self.get_log_dict("test")
-        log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
+        if len(self.test_outputs) > 0:
+            log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
+        else:
+            log_dict["test_loss"] = torch.tensor(0.0)
 
         self.output_test_metrics(log_dict)
         self.log_info(log_dict)
@@ -507,7 +516,10 @@ class SaprotPairClassificationModel(SaprotBaseModel):
 
     def on_validation_epoch_end(self):
         log_dict = self.get_log_dict("valid")
-        log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
+        if len(self.valid_outputs) > 0:
+            log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
+        else:
+            log_dict["valid_loss"] = torch.tensor(0.0)
 
         self.log_info(log_dict)
         self.reset_metrics("valid")
