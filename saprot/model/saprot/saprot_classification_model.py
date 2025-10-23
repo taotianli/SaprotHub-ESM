@@ -1,8 +1,15 @@
-import torchmetrics
+import os
 import torch
-import torch.distributed as dist
-
 from torch.nn.functional import cross_entropy
+
+# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
+
+# 只导入需要的metric，避免导入torchmetrics.functional.text模块
+# 该模块会触发transformers和accelerate的导入
+from torchmetrics.classification import Accuracy
+
 from ..model_interface import register_model
 from .base import SaprotBaseModel
 # 导入学习率调度器 - 修复导入路径
@@ -58,7 +65,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         else:
             task = "multiclass"
         
-        return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
+        return {f"{stage}_acc": Accuracy(task=task, num_classes=self.num_labels)}
 
     # setup方法已移除，不再需要PyTorch Lightning的setup
 

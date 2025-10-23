@@ -5,6 +5,13 @@
 
 import sys
 import os
+
+# 在导入其他库之前设置环境变量，避免accelerate相关的numpy兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
+# 禁用HuggingFace的离线模式检查，避免不必要的网络请求
+os.environ['HF_HUB_OFFLINE'] = '1'
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
