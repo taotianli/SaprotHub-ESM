@@ -525,26 +525,29 @@ class SaprotBaseModel(AbstractModel):
             "valid_pearson": "Pearson correlation",
         }
         
+        # Filter out keys that are not valid metrics (e.g., learning_rate, epoch)
+        metrics_to_plot = {k: v for k, v in log_dict.items() if k.lower() in METRIC_MAP}
+        
         with self.grid.output_to(0, 0):
             self.grid.clear_cell()
             
-            fig = plt.figure(figsize=(6 * len(log_dict), 6))
+            fig = plt.figure(figsize=(6 * len(metrics_to_plot), 6))
             ax = []
             self.valid_metrics_list['step'].append(int(self.step))
-            for idx, metric in enumerate(log_dict.keys()):
-                if log_dict[metric] is None:
+            for idx, metric in enumerate(metrics_to_plot.keys()):
+                if metrics_to_plot[metric] is None:
                     value = torch.nan
-                elif isinstance(log_dict[metric], torch.Tensor):
-                    value = log_dict[metric].detach().cpu().item()
+                elif isinstance(metrics_to_plot[metric], torch.Tensor):
+                    value = metrics_to_plot[metric].detach().cpu().item()
                 else:
-                    value = float(log_dict[metric])
+                    value = float(metrics_to_plot[metric])
                 
                 if metric in self.valid_metrics_list:
                     self.valid_metrics_list[metric].append(value)
                 else:
                     self.valid_metrics_list[metric] = [value]
                 
-                ax.append(fig.add_subplot(1, len(log_dict), idx + 1))
+                ax.append(fig.add_subplot(1, len(metrics_to_plot), idx + 1))
                 ax[idx].set_title(METRIC_MAP[metric.lower()])
                 ax[idx].set_xlabel('step')
                 ax[idx].set_ylabel(METRIC_MAP[metric.lower()])
