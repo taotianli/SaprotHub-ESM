@@ -2,7 +2,8 @@ import torch
 import json
 
 from ..lmdb_dataset import LMDBDataset
-from transformers import AutoTokenizer, EsmTokenizer
+# transformers的tokenizer对ESM3不需要，ESM3使用自己的编码方式
+# from transformers import AutoTokenizer, EsmTokenizer
 from ..data_interface import register_dataset
 from esm.models.esm3 import ESM3
 from esm.sdk.api import ESMProtein
@@ -34,23 +35,16 @@ class SaprotPairClassificationDataset(LMDBDataset):
         kwargs['dataloader_kwargs']['num_workers'] = 0
         
         super().__init__(**kwargs)
-        
         # Don't initialize ESM3 model here to avoid multiprocessing issues
         # It will be initialized in collate_fn or passed from the model
         self.esm_model = None
         self.model_device = 'cpu'  # 默认CPU，会在set_esm_model时更新
         
-        # Only initialize tokenizer if provided and not using ESM3
-        if tokenizer is not None:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-            self.is_saprot_model = 'saprot' in tokenizer.lower() if isinstance(tokenizer, str) else False
-        else:
-            self.tokenizer = None
-            self.is_saprot_model = False  # ESM3 doesn't need saprot tokenizer
-        
         self.max_length = max_length
         self.fixed_seq_length = fixed_seq_length
         self.plddt_threshold = plddt_threshold
+
+        self.is_saprot_model = True  # Always true for ESM3
 
     def set_esm_model(self, esm_model):
         """Set the ESM3 model for encoding. This should be called from the main process."""

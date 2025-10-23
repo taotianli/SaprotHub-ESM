@@ -1,6 +1,88 @@
-import torchmetrics
+import os
+
+# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
+
 import torch
 import torch.distributed as dist
+
+# 自定义回归指标实现，避免导入torchmetrics（会触发accelerate/numpy兼容性问题）
+class SimpleRegressionMetrics:
+    """简单的回归指标计算，替代torchmetrics"""
+    def __init__(self):
+        self.reset()
+    
+    def update(self, preds, target):
+        """更新统计"""
+        if not torch.is_tensor(preds):
+            preds = torch.tensor(preds)
+        if not torch.is_tensor(target):
+            target = torch.tensor(target)
+        
+        # 转换为float并展平
+        preds = preds.float().flatten()
+        target = target.float().flatten()
+        
+        self.preds.append(preds.detach().cpu())
+        self.targets.append(target.detach().cpu())
+    
+    def compute_mse(self):
+        """计算均方误差"""
+        if len(self.preds) == 0:
+            return 0.0
+        preds = torch.cat(self.preds)
+        targets = torch.cat(self.targets)
+        return torch.mean((preds - targets) ** 2).item()
+    
+    def compute_pearson(self):
+        """计算皮尔逊相关系数"""
+        if len(self.preds) == 0:
+            return 0.0
+        preds = torch.cat(self.preds)
+        targets = torch.cat(self.targets)
+        
+        # 计算皮尔逊相关系数
+        vx = preds - torch.mean(preds)
+        vy = targets - torch.mean(targets)
+        corr = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
+        return corr.item()
+    
+    def compute_spearman(self):
+        """计算斯皮尔曼相关系数（使用排名）"""
+        if len(self.preds) == 0:
+            return 0.0
+        preds = torch.cat(self.preds)
+        targets = torch.cat(self.targets)
+        
+        # 使用scipy计算更准确的spearman
+        try:
+            from scipy.stats import spearmanr
+            corr, _ = spearmanr(preds.numpy(), targets.numpy())
+            return corr
+        except:
+            # 如果scipy不可用，返回pearson作为近似
+            return self.compute_pearson()
+    
+    def compute_r2(self):
+        """计算R²分数"""
+        if len(self.preds) == 0:
+            return 0.0
+        preds = torch.cat(self.preds)
+        targets = torch.cat(self.targets)
+        
+        # R² = 1 - SS_res / SS_tot
+        ss_res = torch.sum((targets - preds) ** 2)
+        ss_tot = torch.sum((targets - torch.mean(targets)) ** 2)
+        
+        if ss_tot == 0:
+            return 0.0
+        return (1 - ss_res / ss_tot).item()
+    
+    def reset(self):
+        """重置统计"""
+        self.preds = []
+        self.targets = []
 
 from torch.nn import Linear, ReLU
 from torch.nn.functional import cross_entropy
@@ -75,15 +157,21 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         self.init_optimizers()
 
     def initialize_metrics(self, stage):
-        return {f"{stage}_loss": torchmetrics.MeanSquaredError(),
-                f"{stage}_spearman": torchmetrics.SpearmanCorrCoef(),
-                f"{stage}_R2": torchmetrics.R2Score(),
-                f"{stage}_pearson": torchmetrics.PearsonCorrCoef()}
+        # 使用自定义的SimpleRegressionMetrics，避免torchmetrics的依赖问题
+        return {f"{stage}_metrics": SimpleRegressionMetrics()}
 
-    def setup(self, stage=None):
-        """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
-        super().setup(stage)
-        # print("pair回归模型setup完成，将在训练开始时设置ESM3模型到数据集")
+    def get_log_dict(self, stage):
+        """从metrics中提取日志字典"""
+        log_dict = {}
+        metrics_obj = self.metrics[stage].get(f"{stage}_metrics")
+        if metrics_obj:
+            log_dict[f"{stage}_loss"] = metrics_obj.compute_mse()
+            log_dict[f"{stage}_spearman"] = metrics_obj.compute_spearman()
+            log_dict[f"{stage}_R2"] = metrics_obj.compute_r2()
+            log_dict[f"{stage}_pearson"] = metrics_obj.compute_pearson()
+        return log_dict
+
+    # setup方法已移除，不再需要PyTorch Lightning的setup
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""

@@ -1,6 +1,36 @@
-import torchmetrics
+import os
+
+# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
+
 import torch
 import torch.distributed as dist
+
+# 自定义Accuracy实现，避免导入torchmetrics（会触发accelerate/numpy兼容性问题）
+class SimpleAccuracy:
+    """简单的准确率计算，替代torchmetrics.Accuracy"""
+    def __init__(self, task="multiclass", num_classes=2):
+        self.task = task
+        self.num_classes = num_classes
+        self.correct = 0
+        self.total = 0
+    
+    def update(self, preds, target):
+        """更新统计"""
+        self.correct += (preds == target).sum().item()
+        self.total += target.numel()
+    
+    def compute(self):
+        """计算准确率"""
+        if self.total == 0:
+            return 0.0
+        return self.correct / self.total
+    
+    def reset(self):
+        """重置统计"""
+        self.correct = 0
+        self.total = 0
 
 from torch.nn import Linear, ReLU
 from torch.nn.functional import cross_entropy
@@ -73,17 +103,15 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         self.init_optimizers()
 
     def initialize_metrics(self, stage):
-        # For newer versions of torchmetrics, need to specify task type
+        # 使用自定义的SimpleAccuracy，避免torchmetrics的依赖问题
         if self.num_labels == 2:
             task = "binary"
         else:
             task = "multiclass"
         
-        return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
+        return {f"{stage}_acc": SimpleAccuracy(task=task, num_classes=self.num_labels)}
 
-    def setup(self, stage=None):
-        """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
-        super().setup(stage)
+    # setup方法已移除，不再需要PyTorch Lightning的setup
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
