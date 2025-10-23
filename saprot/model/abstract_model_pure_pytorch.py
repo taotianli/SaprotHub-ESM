@@ -1,16 +1,21 @@
+"""
+纯PyTorch抽象模型基类，不依赖PyTorch Lightning
+用于替换原有的AbstractModel
+"""
+
 import torch
+import torch.nn as nn
 import abc
 import os
 import copy
 
-# 不再使用PyTorch Lightning
-# import pytorch_lightning as pl
 from utils.lr_scheduler import *
 from utils.others import TimeCounter
-# from torch import distributed as dist
 
 
-class AbstractModel(torch.nn.Module):
+class AbstractModel(nn.Module):
+    """不依赖PyTorch Lightning的抽象模型基类"""
+    
     def __init__(self,
                  lr_scheduler_kwargs: dict = None,
                  optimizer_kwargs: dict = None,
@@ -19,16 +24,13 @@ class AbstractModel(torch.nn.Module):
                  load_prev_scheduler: bool = False,
                  save_weights_only: bool = True,):
         """
-
         Args:
-            lr_scheduler: Kwargs for lr_scheduler
-            optimizer_kwargs: Kwargs for optimizer_kwargs
-            save_path: Save trained model
-            from_checkpoint: Load model from checkpoint
-            load_prev_scheduler: Whether load previous scheduler from checkpoint
-            load_strict: Whether load model strictly
-            save_weights_only: Whether save only weights or also optimizer and lr_scheduler
-            
+            lr_scheduler_kwargs: 学习率调度器参数
+            optimizer_kwargs: 优化器参数
+            save_path: 模型保存路径
+            from_checkpoint: 从检查点加载模型
+            load_prev_scheduler: 是否加载之前的调度器
+            save_weights_only: 是否只保存权重
         """
         super().__init__()
         self.initialize_model()
@@ -36,39 +38,36 @@ class AbstractModel(torch.nn.Module):
         self.metrics = {}
         for stage in ["train", "valid", "test"]:
             stage_metrics = self.initialize_metrics(stage)
-            # Rigister metrics as attributes
+            # 注册指标为属性
             for metric_name, metric in stage_metrics.items():
                 setattr(self, metric_name, metric)
-                
             self.metrics[stage] = stage_metrics
         
         if lr_scheduler_kwargs is None:
-            # Default lr_scheduler
             self.lr_scheduler_kwargs = {
                 "class": "ConstantLRScheduler",
                 "init_lr": 0,
             }
-            print("No lr_scheduler_kwargs provided. The default learning rate is 0.")
-
+            print("未提供lr_scheduler_kwargs。默认学习率为0。")
         else:
             self.lr_scheduler_kwargs = lr_scheduler_kwargs
         
         if optimizer_kwargs is None:
-            # Default optimizer
             self.optimizer_kwargs = {
                 "class": "AdamW",
                 "betas": (0.9, 0.98),
                 "weight_decay": 0.01,
             }
-            print("No optimizer_kwargs provided. The default optimizer is AdamW.")
+            print("未提供optimizer_kwargs。默认优化器为AdamW。")
         else:
             self.optimizer_kwargs = optimizer_kwargs
+        
         self.init_optimizers()
 
         self.save_path = save_path
         self.save_weights_only = save_weights_only
         
-        # temp_step is used for accumulating gradients
+        # 步数和epoch计数
         self.temp_step = 0
         self.step = 0
         self.epoch = 0
@@ -81,47 +80,43 @@ class AbstractModel(torch.nn.Module):
     @abc.abstractmethod
     def initialize_model(self) -> None:
         """
-        All model initialization should be done here
-        Note that the whole model must be named as "self.model" for model saving and loading
+        所有模型初始化应在此完成
+        注意整个模型必须命名为"self.model"以便模型保存和加载
         """
         raise NotImplementedError
     
     @abc.abstractmethod
     def forward(self, *args, **kwargs):
-        """
-        Forward propagation
-        """
+        """前向传播"""
         raise NotImplementedError
     
     @abc.abstractmethod
     def initialize_metrics(self, stage: str) -> dict:
         """
-        Initialize metrics for each stage
+        初始化每个阶段的指标
         Args:
-            stage: "train", "valid" or "test"
-        
+            stage: "train", "valid" 或 "test"
         Returns:
-            A dictionary of metrics for the stage. Keys are metric names and values are metric objects
+            该阶段的指标字典。键为指标名称，值为指标对象
         """
         raise NotImplementedError
 
     @abc.abstractmethod
     def loss_func(self, stage: str, outputs, labels) -> torch.Tensor:
         """
-
+        计算损失
         Args:
-            stage: "train", "valid" or "test"
-            outputs: model outputs for calculating loss
-            labels: labels for calculating loss
-
+            stage: "train", "valid" 或 "test"
+            outputs: 模型输出
+            labels: 标签
         Returns:
-            loss
-
+            损失值
         """
         raise NotImplementedError
 
     @staticmethod
     def load_weights(model, weights):
+        """加载权重"""
         model_dict = model.state_dict()
 
         unused_params = []
@@ -131,156 +126,116 @@ class AbstractModel(torch.nn.Module):
             if k in model_dict.keys():
                 model_dict[k] = v
                 missed_params.remove(k)
-
             else:
                 unused_params.append(k)
 
         if len(missed_params) > 0:
-            print(f"\033[31mSome weights of {type(model).__name__} were not "
-                  f"initialized from the model checkpoint: {missed_params}\033[0m")
+            print(f"\033[31m{type(model).__name__}的某些权重未从模型检查点初始化: {missed_params}\033[0m")
 
         if len(unused_params) > 0:
-            print(f"\033[31mSome weights of the model checkpoint were not used: {unused_params}\033[0m")
+            print(f"\033[31m模型检查点的某些权重未被使用: {unused_params}\033[0m")
 
         model.load_state_dict(model_dict)
 
-    # optimizer_step方法已移除，因为不再使用PyTorch Lightning
-    # 优化器步骤现在由训练循环直接处理
-        
-    # For pytorch-lightning 1.9.5
-    # def optimizer_step(
-    #     self,
-    #     epoch: int,
-    #     batch_idx: int,
-    #     optimizer,
-    #     optimizer_idx: int = 0,
-    #     optimizer_closure=None,
-    #     on_tpu: bool = False,
-    #     using_native_amp: bool = False,
-    #     using_lbfgs: bool = False,
-    # ) -> None:
-    #     super().optimizer_step(
-    #         epoch, batch_idx, optimizer, optimizer_idx, optimizer_closure, on_tpu, using_native_amp, using_lbfgs
-    #     )
-    #     self.temp_step += 1
-    #     if self.temp_step == self.trainer.accumulate_grad_batches:
-    #         self.step += 1
-    #         self.temp_step = 0
-
     def on_train_epoch_end(self):
+        """训练epoch结束时的回调"""
         self.epoch += 1
     
-    # training_step, validation_step, test_step方法已移除
-    # 这些功能现在由纯PyTorch训练循环处理
-    
-    def on_train_start(self) -> None:
-        # Load previous scheduler
+    def on_train_start(self):
+        """训练开始时的回调"""
+        # 加载之前的调度器
         if getattr(self, "prev_schechuler", None) is not None:
             try:
                 self.step = self.prev_schechuler["global_step"]
                 self.epoch = self.prev_schechuler["epoch"]
                 self.best_value = self.prev_schechuler["best_value"]
                 self.lr_scheduler.load_state_dict(self.prev_schechuler["lr_scheduler"])
-                print(f"Previous training global step: {self.step}")
-                print(f"Previous training epoch: {self.epoch}")
-                print(f"Previous best value: {self.best_value}")
-                print(f"Previous lr_scheduler: {self.prev_schechuler['lr_scheduler']}")
+                print(f"之前的训练全局步数: {self.step}")
+                print(f"之前的训练epoch: {self.epoch}")
+                print(f"之前的最佳值: {self.best_value}")
+                print(f"之前的lr_scheduler: {self.prev_schechuler['lr_scheduler']}")
                 
-                # 纯PyTorch版本：直接加载优化器状态
-                if "optimizer" in self.prev_schechuler:
-                    self.optimizer.load_state_dict(self.prev_schechuler["optimizer"])
-
+                # 加载优化器状态
+                self.optimizer.load_state_dict(self.prev_schechuler["optimizer"])
             except Exception as e:
                 print(e)
-                raise Exception("Error in loading previous scheduler. Please set load_prev_scheduler=False")
+                raise Exception("加载之前的调度器时出错。请设置load_prev_scheduler=False")
     
     def on_validation_epoch_start(self) -> None:
+        """验证epoch开始时的回调"""
         setattr(self, "valid_outputs", [])
     
     def on_test_epoch_start(self) -> None:
+        """测试epoch开始时的回调"""
         setattr(self, "test_outputs", [])
             
     def load_checkpoint(self, from_checkpoint: str) -> None:
         """
+        从检查点加载模型
         Args:
-            from_checkpoint:  Path to checkpoint.
+            from_checkpoint: 检查点路径
         """
-        
-        # If ``from_checkpoint`` is a directory, load the checkpoint in it
+        # 如果是目录，加载其中的检查点
         if os.path.isdir(from_checkpoint):
             basename = os.path.basename(from_checkpoint)
             from_checkpoint = os.path.join(from_checkpoint, f"{basename}.pt")
 
         # 检查检查点文件是否存在
         if not os.path.exists(from_checkpoint):
-            # print(f"⚠️  警告: 检查点文件不存在: {from_checkpoint}")
-            # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
             return
 
         try:
-            # print(f"📂 正在加载检查点: {from_checkpoint}")
-            state_dict = torch.load(from_checkpoint, map_location=self.device)
+            state_dict = torch.load(from_checkpoint, map_location='cpu')
             
             if "model" not in state_dict:
-                # print(f"❌ 检查点文件格式错误: 缺少'model'键")
-                # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
                 return
                 
             self.load_weights(self.model, state_dict["model"])
-            # print(f"✅ 检查点加载成功")
             
             if self.load_prev_scheduler:
                 state_dict.pop("model")
                 self.prev_schechuler = state_dict
-                # print(f"✅ 调度器状态加载成功")
                 
         except Exception as e:
-            # print(f"❌ 加载检查点时出错: {str(e)}")
-            # print("🔄 跳过检查点加载，使用随机初始化的模型进行训练")
             pass
 
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
         """
-        Save model to save_path
+        保存模型到save_path
         Args:
-            save_path: Path to save model
-            save_info: Other info to save
-            save_weights_only: Whether only save model weights
+            save_path: 保存路径
+            save_info: 其他要保存的信息
+            save_weights_only: 是否只保存模型权重
         """
         try:
             # 确保路径有.pt扩展名
             if not save_path.endswith('.pt'):
                 save_path = save_path + '.pt'
-                # print(f"🔧 添加.pt扩展名: {save_path}")
             
             # 确保目录路径存在
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                # print(f"📁 创建/确认保存目录: {dir_path}")
             
-            # Test if directory is writable
+            # 测试目录是否可写
             test_file = os.path.join(dir_path if dir_path else '.', '.write_test')
             try:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                # print(f"✅ 目录可写: {dir_path if dir_path else '当前目录'}")
             except (OSError, IOError) as e:
-                # If the original path is not writable, use a fallback path
-                # print(f"⚠️  警告: 无法写入目录 {dir_path}, 使用备用路径")
+                # 如果原路径不可写，使用备用路径
                 fallback_dir = os.path.join(os.getcwd(), 'model_checkpoints')
                 os.makedirs(fallback_dir, exist_ok=True)
                 filename = os.path.basename(save_path)
                 if not filename.endswith('.pt'):
                     filename = filename + '.pt'
                 save_path = os.path.join(fallback_dir, filename)
-                # print(f"💾 保存到备用路径: {save_path}")
             
             state_dict = {} if save_info is None else save_info
             state_dict["model"] = self.model.state_dict()
             
-            # Convert model weights to fp32
+            # 将模型权重转换为fp32
             for k, v in state_dict["model"].items():
                 state_dict["model"][k] = v.float()
                 
@@ -288,42 +243,33 @@ class AbstractModel(torch.nn.Module):
                 state_dict["global_step"] = self.step
                 state_dict["epoch"] = self.epoch
                 state_dict["best_value"] = getattr(self, f"best_value", None)
-                if hasattr(self, 'lr_scheduler'):
-                    state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
-                
-                # 纯PyTorch版本：直接保存优化器状态
-                if hasattr(self, 'optimizer'):
-                    state_dict["optimizer"] = self.optimizer.state_dict()
+                state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
+                state_dict["optimizer"] = self.optimizer.state_dict()
 
             torch.save(state_dict, save_path)
-            # print(f"💾 模型检查点已保存到: {save_path}")
             
         except Exception as e:
-            # print(f"❌ 保存检查点时出错: {e}")
-            # Try to save to current directory as last resort
+            # 尝试保存到当前目录作为最后手段
             try:
                 fallback_path = os.path.join(os.getcwd(), 'emergency_checkpoint.pt')
                 state_dict = {} if save_info is None else save_info
                 state_dict["model"] = self.model.state_dict()
                 torch.save(state_dict, fallback_path)
-                # print(f"🚨 紧急检查点已保存到: {fallback_path}")
             except Exception as e2:
-                # print(f"❌ 紧急保存也失败: {e2}")
                 raise e
 
     def check_save_condition(self, now_value: float, mode: str, save_info: dict = None) -> None:
         """
-        Check whether to save model. If save_path is not None and now_value is the best, save model.
+        检查是否保存模型。如果save_path不为None且now_value是最佳值，则保存模型。
         Args:
-            now_value: Current metric value
-            mode: "min" or "max", meaning whether the lower the better or the higher the better
-            save_info: Other info to save
+            now_value: 当前指标值
+            mode: "min" 或 "max"，表示越低越好还是越高越好
+            save_info: 其他要保存的信息
         """
-
-        assert mode in ["min", "max"], "mode should be 'min' or 'max'"
+        assert mode in ["min", "max"], "mode应为'min'或'max'"
 
         if self.save_path is not None:
-            # In case there are variables to be included in the save path
+            # 以防保存路径中有变量
             try:
                 save_path = eval(f"f'{self.save_path}'")
             except:
@@ -333,44 +279,35 @@ class AbstractModel(torch.nn.Module):
             if not save_path.endswith('.pt'):
                 save_path = save_path + '.pt'
             
-            # print(f"🔍 检查保存条件，目标路径: {save_path}")
-            
             dir_path = os.path.dirname(save_path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
-                # print(f"📁 创建保存目录: {dir_path}")
             
-            # Check whether to save model
+            # 检查是否保存模型
             best_value = getattr(self, f"best_value", None)
             if best_value is not None:
                 if mode == "min" and now_value >= best_value or mode == "max" and now_value <= best_value:
-                    # print(f"❌ 当前值 {now_value} 不是最佳值 (最佳: {best_value})，跳过保存")
                     return
                 
             setattr(self, "best_value", now_value)
-            # print(f"✅ 新的最佳值: {now_value}，准备保存模型")
-                
-            # 纯PyTorch版本：直接保存
             self.save_checkpoint(save_path, save_info, self.save_weights_only)
             
     def reset_metrics(self, stage) -> None:
         """
-        Reset metrics for given stage
+        重置给定阶段的指标
         Args:
-            stage: "train", "valid" or "test"
+            stage: "train", "valid" 或 "test"
         """
         for metric in self.metrics[stage].values():
             metric.reset()
     
     def get_log_dict(self, stage: str) -> dict:
         """
-        Get log dict for the stage
+        获取该阶段的日志字典
         Args:
-            stage: "train", "valid" or "test"
-
+            stage: "train", "valid" 或 "test"
         Returns:
-            A dictionary of metrics for the stage. Keys are metric names and values are metric values
-
+            该阶段的指标字典。键为指标名称，值为指标值
         """
         log_dict = {}
         for name, metric in self.metrics[stage].items():
@@ -383,27 +320,25 @@ class AbstractModel(torch.nn.Module):
     
     def log_info(self, info: dict) -> None:
         """
-        Record metrics during training and testing
+        在训练和测试期间记录指标
         Args:
-            info: dict of metrics
+            info: 指标字典
         """
-        # 纯PyTorch版本：简化日志记录
+        # 纯PyTorch版本不需要logger，直接打印
         if hasattr(self, "lr_scheduler"):
             info["learning_rate"] = self.lr_scheduler.get_last_lr()[0]
         info["epoch"] = self.epoch
-        info["step"] = self.step
-        # 可以在这里添加自定义的日志记录逻辑
-        # print(f"[Step {self.step}] {info}")
+        # print(f"Step {self.step}: {info}")
 
     def init_optimizers(self):
+        """初始化优化器和学习率调度器"""
         copy_optimizer_kwargs = copy.deepcopy(self.optimizer_kwargs)
         
-        # No decay for layer norm and bias
+        # 层归一化和偏置不进行权重衰减
         no_decay = ['LayerNorm.weight', 'bias']
         weight_decay = copy_optimizer_kwargs.pop("weight_decay")
 
-        # Collect all trainable parameters from the entire model (including classification heads, etc.)
-        # Use self.named_parameters() instead of self.model.named_parameters()
+        # 收集所有可训练参数
         optimizer_grouped_parameters = [
             {'params': [p for n, p in self.named_parameters() if not any(nd in n for nd in no_decay) and p.requires_grad],
              'weight_decay': weight_decay},
@@ -421,8 +356,13 @@ class AbstractModel(torch.nn.Module):
         self.lr_scheduler = eval(lr_scheduler)(self.optimizer, **tmp_kwargs)
     
     def configure_optimizers(self):
-        return {"optimizer": self.optimizer,
-                "lr_scheduler": {"scheduler": self.lr_scheduler,
-                                 "interval": "step",
-                                 "frequency": 1}
-                }
+        """返回优化器和学习率调度器配置"""
+        return {
+            "optimizer": self.optimizer,
+            "lr_scheduler": {
+                "scheduler": self.lr_scheduler,
+                "interval": "step",
+                "frequency": 1
+            }
+        }
+

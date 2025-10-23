@@ -60,10 +60,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         
         return {f"{stage}_acc": torchmetrics.Accuracy(task=task, num_classes=self.num_labels)}
 
-    def setup(self, stage=None):
-        """PyTorch Lightning的setup方法，在这里设置ESM3模型到数据集"""
-        super().setup(stage)
-        # print("模型setup完成，将在训练开始时设置ESM3模型到数据集")
+    # setup方法已移除，不再需要PyTorch Lightning的setup
 
     def on_train_start(self):
         """训练开始时的回调，确保ESM3模型传递给数据集"""
@@ -505,9 +502,9 @@ class SaprotClassificationModel(SaprotBaseModel):
                 
                 # 计算权重文件大小
                 param_count = sum(p.numel() for p in self.classification_head.parameters())
-                print(f"🔍 保存分类头权重:")
-                print(f"  - 参数数量: {param_count:,}")
-                print(f"  - 保存路径: {save_path}")
+                # print(f"🔍 保存分类头权重:")
+                # print(f"  - 参数数量: {param_count:,}")
+                # print(f"  - 保存路径: {save_path}")
                 
                 if not save_weights_only:
                     # 如果需要保存训练状态
@@ -515,18 +512,18 @@ class SaprotClassificationModel(SaprotBaseModel):
                     state_dict["epoch"] = self.epoch
                     state_dict["best_value"] = getattr(self, "best_value", None)
                     
-                    if hasattr(self, 'lr_schedulers') and self.lr_schedulers() is not None:
-                        state_dict["lr_scheduler"] = self.lr_schedulers().state_dict()
+                    if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                        state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
                     
-                    if hasattr(self, 'optimizers') and self.optimizers() is not None:
-                        state_dict["optimizer"] = self.optimizers().optimizer.state_dict()
+                    if hasattr(self, 'optimizer') and self.optimizer is not None:
+                        state_dict["optimizer"] = self.optimizer.state_dict()
                 
                 # 保存到文件
                 torch.save(state_dict, save_path)
                 
                 # 验证保存的文件大小
-                saved_size = os.path.getsize(save_path) / (1024 * 1024)
-                print(f"✅ 分类头权重保存成功: {saved_size:.2f} MB")
+                # saved_size = os.path.getsize(save_path) / (1024 * 1024)
+                # print(f"✅ 分类头权重保存成功: {saved_size:.2f} MB")
                 
             else:
                 print("❌ 分类头不存在，无法保存")
@@ -692,54 +689,5 @@ class SaprotClassificationModel(SaprotBaseModel):
         # print(f"✅ 学习率调度器: {lr_scheduler_name}")
         # print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
 
-    def training_step(self, batch, batch_idx):
-        """重写训练步骤，添加详细的梯度监控"""
-        inputs, labels = batch
-        
-        # 在前向传播前检查参数梯度状态
-        # if batch_idx == 0:  # 只在第一个batch时打印
-        #     print(f"\n🔍 训练步骤 {batch_idx} 开始前的参数状态:")
-        #     for name, param in self.classification_head.named_parameters():
-        #         print(f"  {name}: requires_grad={param.requires_grad}, grad={'有' if param.grad is not None else '无'}")
-        
-        # 前向传播
-        outputs = self(**inputs)
-        
-        # 计算损失
-        loss = self.loss_func('train', outputs, labels)
-        
-        # print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
-        
-        # 在返回loss之前检查梯度（PyTorch Lightning会自动调用backward）
-        # if batch_idx == 0:  # 只在第一个batch时打印
-        #     print(f"🔍 损失计算完成，准备反向传播...")
-        #     print(f"  Loss requires_grad: {loss.requires_grad}")
-        #     print(f"  Loss grad_fn: {loss.grad_fn}")
-        
-        self.log("loss", loss, prog_bar=True)
-        return loss
-
-    def on_before_optimizer_step(self, optimizer):
-        """在优化器步骤之前检查梯度"""
-        # 检查分类头梯度
-        # total_grad_norm = 0.0
-        # param_count = 0
-        
-        # print(f"\n🔍 优化器步骤前的梯度检查:")
-        # for name, param in self.classification_head.named_parameters():
-        #     if param.grad is not None:
-        #         grad_norm = param.grad.norm().item()
-        #         total_grad_norm += grad_norm ** 2
-        #         param_count += 1
-        #         print(f"  {name}: grad_norm={grad_norm:.6f}")
-        #     else:
-        #         print(f"  {name}: ❌ 无梯度!")
-        
-        # if param_count > 0:
-        #     total_grad_norm = total_grad_norm ** 0.5
-        #     print(f"  分类头总梯度范数: {total_grad_norm:.6f}")
-        # else:
-        #     print(f"  ❌ 分类头没有任何参数有梯度!")
-        
-        # 调用父类方法
-        super().on_before_optimizer_step(optimizer)
+    # training_step和on_before_optimizer_step方法已移除
+    # 这些功能现在由纯PyTorch训练循环处理

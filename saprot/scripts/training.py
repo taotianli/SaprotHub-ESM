@@ -12,50 +12,20 @@ from easydict import EasyDict
 from utils.others import setup_seed
 from utils.module_loader import *
 
+# 导入纯PyTorch训练器
+from saprot.scripts.training_pure_pytorch import finetune_pure_pytorch, PurePyTorchTrainer
+
 
 
 ################################################################################
 ################################## finetune ####################################
 ################################################################################
 def finetune(config):
-    if config.setting.seed:
-        setup_seed(config.setting.seed)
-
-    for k, v in config.setting.os_environ.items():
-        if v is not None and k not in os.environ:
-            os.environ[k] = str(v)
-
-        elif k in os.environ:
-            config.setting.os_environ[k] = os.environ[k]
-
-    if config.setting.os_environ.NODE_RANK != 0:
-        config.Trainer.logger = False
-
-    ############################################################################
-    model = my_load_model(config.model)
-    if str(config.setting.seed):
-        config.dataset.seed= config.setting.seed
-    data_module = my_load_dataset(config.dataset)
-    trainer = load_trainer(config)
-
-    ############################################################################
-    # if config.setting.run_mode == 'train':
-    trainer.fit(model=model, datamodule=data_module)
-    # Load best model and test performance
-    if model.save_path is not None:
-        # adapter和LoRA加载逻辑已注释，因为已禁用LoRA
-        # if config.model.kwargs.get("lora_kwargs", None):
-        #     # Load LoRA model
-        #     if len(getattr(config.model.kwargs.lora_kwargs, "config_list", [])) <= 1:
-        #         config.model.kwargs.lora_kwargs.num_lora = 1
-        #         config.model.kwargs.lora_kwargs.config_list = [{"lora_config_path": model.save_path}]
-        #         
-        #     model = my_load_model(config.model)
-        # else:
-        #     model.load_checkpoint(model.save_path)
-        
-        model.load_checkpoint(model.save_path)
-        trainer.test(model=model, datamodule=data_module)
+    """
+    使用纯PyTorch训练替代PyTorch Lightning
+    """
+    # 调用纯PyTorch训练函数
+    finetune_pure_pytorch(config)
 
 
     ############################################################################
