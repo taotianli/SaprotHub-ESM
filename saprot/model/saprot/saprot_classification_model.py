@@ -359,7 +359,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         if len(self.test_outputs) > 0:
             log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
         else:
-            log_dict["test_loss"] = 0.0
+            log_dict["test_loss"] = torch.tensor(0.0)
 
         self.output_test_metrics(log_dict)
         self.log_info(log_dict)
@@ -373,7 +373,7 @@ class SaprotClassificationModel(SaprotBaseModel):
         if len(self.valid_outputs) > 0:
             log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
         else:
-            log_dict["valid_loss"] = 0.0
+            log_dict["valid_loss"] = torch.tensor(0.0)
 
         self.log_info(log_dict)
         self.reset_metrics("valid")
