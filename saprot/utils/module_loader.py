@@ -1,13 +1,15 @@
 import os
 import copy
-import pytorch_lightning as pl
+# 不再使用 PyTorch Lightning
+# import pytorch_lightning as pl
 import datetime
 import wandb
 
-from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
+# 不再使用 PyTorch Lightning 的 loggers 和 strategies
+# from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
+# from pytorch_lightning.strategies import DDPStrategy, DeepSpeedStrategy, Strategy
 from model.model_interface import ModelInterface
 from dataset.data_interface import DataInterface
-from pytorch_lightning.strategies import DDPStrategy, DeepSpeedStrategy, Strategy
 
 ################################################################################
 ################################ load model ####################################
@@ -101,13 +103,20 @@ def my_load_dataset(config):
       return ProtT5TokenClassificationDataset(**dataset_config)
 
 def load_wandb(config):
-    # initialize wandb
+    """
+    初始化wandb（不使用PyTorch Lightning的WandbLogger）
+    纯PyTorch版本：直接使用wandb.init
+    """
     wandb_config = config.setting.wandb_config
-    wandb_logger = WandbLogger(project=wandb_config.project, config=config,
-                               name=wandb_config.name,
-                               settings=wandb.Settings())
     
-    return wandb_logger
+    # 直接使用wandb而不是WandbLogger
+    wandb.init(
+        project=wandb_config.project,
+        name=wandb_config.name,
+        config=dict(config)
+    )
+    
+    return wandb
 
 
 def load_model(config):
@@ -158,30 +167,14 @@ def load_dataset(config):
 #     return plugins
 
 
-# Initialize strategy
-def load_strategy(config):
-    config = copy.deepcopy(config)
-    if "timeout" in config.keys():
-        timeout = int(config.pop('timeout'))
-        config["timeout"] = datetime.timedelta(seconds=timeout)
-    
-    cls = config.pop('class')
-    return eval(cls)(**config)
+# load_strategy 函数已移除，不再需要 PyTorch Lightning 的 strategy
 
-
-# Initialize a pytorch lightning trainer
+# load_trainer 函数已被 PurePyTorchTrainer 替代
+# 为了保持向后兼容，创建一个简单的包装函数
 def load_trainer(config):
-    trainer_config = copy.deepcopy(config.Trainer)
-    
-    # Initialize wandb
-    if trainer_config.logger:
-        trainer_config.logger = load_wandb(config)
-    else:
-        trainer_config.logger = False
-    
-    # Initialize strategy
-    # strategy = load_strategy(trainer_config.pop('strategy'))
-    # Strategy is not used in Colab
-    trainer_config.pop('strategy')
-    
-    return pl.Trainer(**trainer_config, callbacks=[], use_distributed_sampler=False)
+    """
+    加载训练器（纯PyTorch版本）
+    返回 PurePyTorchTrainer 而不是 pl.Trainer
+    """
+    from saprot.scripts.training_pure_pytorch import PurePyTorchTrainer
+    return PurePyTorchTrainer(config)

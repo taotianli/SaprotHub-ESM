@@ -1,19 +1,21 @@
 import abc
 import torch
 import lmdb
-import pytorch_lightning as pl
+# 不再使用 PyTorch Lightning
+# import pytorch_lightning as pl
 import copy
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 
 _10TB = 10995116277760
 
 
-class LMDBDataset(pl.LightningDataModule):
+class LMDBDataset(Dataset):
     """
     Abstract class from which other datasets inherit. We use LMDB database for all subclasses.
+    不再继承 pl.LightningDataModule，改为继承 torch.utils.data.Dataset
     """
     def __init__(self,
                  train_lmdb: str = None,
@@ -28,7 +30,8 @@ class LMDBDataset(pl.LightningDataModule):
             test_lmdb: path to test lmdb
             dataloader_kwargs: kwargs for dataloader
         """
-        super().__init__()
+        # 不再调用 pl.LightningDataModule 的 super().__init__()
+        # super().__init__()
         self.train_lmdb = train_lmdb
         self.valid_lmdb = valid_lmdb
         self.test_lmdb = test_lmdb
@@ -85,6 +88,13 @@ class LMDBDataset(pl.LightningDataModule):
     
     def val_dataloader(self):
         return self._dataloader("valid")
+    
+    def setup(self, stage=None):
+        """
+        Setup方法用于兼容PyTorch Lightning风格的代码
+        但现在是空实现，因为不再使用 PyTorch Lightning
+        """
+        pass
         
     @abc.abstractmethod
     def __getitem__(self, index):

@@ -3,7 +3,7 @@ torch
 torchvision
 torchaudio
 torchmetrics
-pytorch-lightning
+# pytorch-lightning
 transformers
 huggingface_hub
 scikit-learn
