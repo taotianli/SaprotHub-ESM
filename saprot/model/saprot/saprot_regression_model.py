@@ -481,9 +481,9 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
                 # 计算权重文件大小
                 param_count = sum(p.numel() for p in self.regression_head.parameters())
-                # print(f"🔍 保存回归头权重:")
-                # print(f"  - 参数数量: {param_count:,}")
-                # print(f"  - 保存路径: {save_path}")
+                print(f"🔍 保存回归头权重:")
+                print(f"  - 参数数量: {param_count:,}")
+                print(f"  - 保存路径: {save_path}")
                 
                 if not save_weights_only:
                     # 如果需要保存训练状态
@@ -501,8 +501,8 @@ class SaprotRegressionModel(SaprotBaseModel):
                 torch.save(state_dict, save_path)
                 
                 # 验证保存的文件大小
-                # saved_size = os.path.getsize(save_path) / (1024 * 1024)
-                # print(f"✅ 回归头权重保存成功: {saved_size:.2f} MB")
+                saved_size = os.path.getsize(save_path) / (1024 * 1024)
+                print(f"✅ 回归头权重保存成功: {saved_size:.2f} MB")
                 
             else:
                 print("❌ 回归头不存在，无法保存")
