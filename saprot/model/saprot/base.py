@@ -488,7 +488,10 @@ class SaprotBaseModel(AbstractModel):
         flag = False
         for key, value in log_dict.items():
             if value is not None:
-                print_value = value.item()
+                if isinstance(value, torch.Tensor):
+                    print_value = value.item()
+                else:
+                    print_value = float(value)
             else:
                 print_value = torch.nan
                 flag = True
@@ -567,3 +570,14 @@ class SaprotBaseModel(AbstractModel):
             display(hint)
             # plt.tight_layout()
             plt.show()
+            
+            # Print accuracy values for debugging
+            print("\n" + "=" * 100)
+            print("Validation metrics at each step:")
+            print("=" * 100)
+            for metric in metrics_to_plot.keys():
+                if metric in self.valid_metrics_list:
+                    print(f"\n{METRIC_MAP[metric.lower()]}:")
+                    for step, val in zip(self.valid_metrics_list['step'], self.valid_metrics_list[metric]):
+                        print(f"  Step {step}: {val:.6f}")
+            print("=" * 100)
