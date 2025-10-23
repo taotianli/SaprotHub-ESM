@@ -612,3 +612,165 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         self.check_save_condition(log_dict["valid_loss"], mode="min")
 
         self.plot_valid_metrics_curve(log_dict)
+
+    def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True) -> None:
+        """
+        重写保存方法，保存回归头权重和LoRA权重（如果使用了LoRA）
+        """
+        import os
+        import torch
+        
+        try:
+            # 创建保存目录
+            dir_path = os.path.dirname(save_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+            
+            # 创建保存的状态字典
+            state_dict = {} if save_info is None else save_info.copy()
+            state_dict["fixed_seq_length"] = self.fixed_seq_length
+            state_dict["task"] = "pair_regression"
+            
+            total_params = 0
+            
+            # 保存回归头的权重
+            if hasattr(self, 'regression_head') and self.regression_head is not None:
+                regression_head_state = self.regression_head.state_dict()
+                state_dict["regression_head"] = regression_head_state
+                
+                param_count = sum(p.numel() for p in self.regression_head.parameters())
+                total_params += param_count
+                print(f"🔍 保存回归头权重:")
+                print(f"  - 参数数量: {param_count:,}")
+            
+            # 检查是否使用了LoRA，如果是则保存LoRA参数
+            from saprot.utils.esm3_lora import ESM3LoRAWrapper
+            if isinstance(self.model, ESM3LoRAWrapper):
+                lora_state = self.model.get_lora_state_dict()
+                state_dict["lora"] = lora_state
+                state_dict["lora_config"] = {
+                    "r": self.model.r,
+                    "alpha": self.model.alpha,
+                    "dropout": self.model.dropout,
+                    "target_modules": self.model.target_modules
+                }
+                
+                lora_param_count = sum(p.numel() for p in lora_state.values())
+                total_params += lora_param_count
+                print(f"🔍 保存LoRA权重:")
+                print(f"  - LoRA参数数量: {lora_param_count:,}")
+                print(f"  - LoRA rank: {self.model.r}")
+                print(f"  - Target modules: {len(self.model.lora_layers)}")
+            
+            print(f"  - 总参数数量: {total_params:,}")
+            print(f"  - 保存路径: {save_path}")
+            
+            if not save_weights_only:
+                # 如果需要保存训练状态
+                state_dict["global_step"] = self.step
+                state_dict["epoch"] = self.epoch
+                state_dict["best_value"] = getattr(self, "best_value", None)
+                
+                if hasattr(self, 'lr_scheduler') and self.lr_scheduler is not None:
+                    state_dict["lr_scheduler"] = self.lr_scheduler.state_dict()
+                
+                if hasattr(self, 'optimizer') and self.optimizer is not None:
+                    state_dict["optimizer"] = self.optimizer.state_dict()
+            
+            # 保存到文件
+            torch.save(state_dict, save_path)
+            
+            # 验证保存的文件大小
+            saved_size = os.path.getsize(save_path) / (1024 * 1024)
+            print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
+                
+        except Exception as e:
+            print(f"❌ 保存回归头权重失败: {str(e)}")
+            # 尝试保存到当前目录作为备份
+            try:
+                fallback_path = os.path.join(os.getcwd(), 'pair_regression_head_checkpoint.pt')
+                if hasattr(self, 'regression_head'):
+                    state_dict = {"regression_head": self.regression_head.state_dict()}
+                    torch.save(state_dict, fallback_path)
+                    print(f"💾 备用保存成功: {fallback_path}")
+            except Exception as e2:
+                print(f"❌ 备用保存也失败: {str(e2)}")
+                raise e
+
+    def load_checkpoint(self, checkpoint_path: str) -> None:
+        """
+        加载回归头权重
+        """
+        import torch
+        import os
+        
+        # 如果是目录，构造完整的文件路径
+        if os.path.isdir(checkpoint_path):
+            basename = os.path.basename(checkpoint_path)
+            checkpoint_file = os.path.join(checkpoint_path, f"{basename}.pt")
+            if os.path.exists(checkpoint_file):
+                checkpoint_path = checkpoint_file
+            else:
+                print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                return
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            return
+        
+        try:
+            # 加载权重
+            state_dict = torch.load(checkpoint_path, map_location='cpu')
+            
+            # 验证是否为回归头权重文件
+            if "regression_head" in state_dict:
+                # 新格式：包含回归头（和可能的LoRA权重）
+                regression_head_state = state_dict["regression_head"]
+                fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
+                
+                print(f"🔍 加载权重:")
+                print(f"  - 文件: {checkpoint_path}")
+                print(f"  - 序列长度: {fixed_seq_length}")
+                
+                # 验证维度匹配
+                if fixed_seq_length == self.fixed_seq_length:
+                    self.regression_head.load_state_dict(regression_head_state)
+                    print(f"✅ 回归头权重加载成功")
+                    
+                    # 检查是否有LoRA权重
+                    if "lora" in state_dict:
+                        from saprot.utils.esm3_lora import ESM3LoRAWrapper
+                        if isinstance(self.model, ESM3LoRAWrapper):
+                            lora_state = state_dict["lora"]
+                            lora_config = state_dict.get("lora_config", {})
+                            
+                            print(f"🔍 加载LoRA权重:")
+                            print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
+                            print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
+                            
+                            self.model.load_lora_state_dict(lora_state)
+                            print(f"✅ LoRA权重加载成功")
+                        else:
+                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                    
+                else:
+                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
+                    
+            elif "model" in state_dict and any("regression_head" in k for k in state_dict["model"].keys()):
+                # 旧格式：包含整个模型，提取回归头部分
+                model_state = state_dict["model"]
+                regression_head_state = {
+                    k.replace("regression_head.", ""): v 
+                    for k, v in model_state.items() 
+                    if k.startswith("regression_head.")
+                }
+                if regression_head_state:
+                    self.regression_head.load_state_dict(regression_head_state)
+                    print(f"✅ 从完整模型权重中提取并加载回归头")
+                else:
+                    print(f"❌ 在模型权重中未找到回归头参数")
+            else:
+                print(f"❌ 不识别的权重文件格式")
+                
+        except Exception as e:
+            print(f"❌ 加载回归头权重失败: {str(e)}")
