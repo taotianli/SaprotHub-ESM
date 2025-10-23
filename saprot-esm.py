@@ -526,6 +526,14 @@ def select_adapter_from(task_type, use_model_from):
 
     return EasyDict({"value":  f"Local/{adapter_zip_path.stem}"})
 
+  elif use_model_from == "Official ESM3 (1.4B)":
+    # For official ESM3 model, return a placeholder widget
+    import ipywidgets
+    from ipywidgets import Layout
+    placeholder_widget = ipywidgets.HTML(value="Using Official ESM3 (1.4B) - no additional model selection needed")
+    placeholder_widget.layout = Layout(display="none")  # Hide it since it's not needed
+    return placeholder_widget
+
   # elif use_model_from == "Multi-models on ColabESM3":
   #   # 1. select the list of adapters
   #   print(Fore.BLUE+f"Local Model ({task_type}):"+Style.RESET_ALL)
@@ -536,6 +544,14 @@ def select_adapter_from(task_type, use_model_from):
   #   # 1. enter the list of adapters
   #   print(Fore.BLUE+f"SaprotHub Model IDs, separated by commas ({task_type}):"+Style.RESET_ALL)
   #   return adapters_textmultiple(adapters_list)
+  
+  # Default fallback for unrecognized model types
+  else:
+    import ipywidgets
+    from ipywidgets import Layout
+    placeholder_widget = ipywidgets.HTML(value=f"Model type '{use_model_from}' not supported")
+    placeholder_widget.layout = Layout(display="none")
+    return placeholder_widget
 
 
 
@@ -1647,104 +1663,76 @@ def save_uploaded_file(button):
 
 # Protein property prediction
 def make_predictions(df, rows, num_labels, model_type, model_arg):
-  device = "cuda" if torch.cuda.is_available() else "cpu"
-  
-  if model_type == "Official ESM3 (1.4B)":
-    # 直接使用ESM3官方模型，目前仅支持嵌入生成
-    print("⚠️ 警告: 官方ESM3模型目前仅支持嵌入生成，不支持分类预测。")
-    print("📝 请使用 'Trained by yourself on ColabESM3' 选项来加载您训练的分类模型。")
-    return None, None
-    
-  else:
-    # 加载训练好的ESM3分类模型
-    task_type = load_task_type_from_model(model_type, str(model_arg).split("\n")[0].strip())
-    original_task_type = task_type
-    task_type = task_type_dict[task_type]
-
-    if model_type == "Shared by peers on SaprotHub":
-      snapshot_download(repo_id=model_arg, repo_type="model", local_dir=ADAPTER_HOME / model_arg)
-
-    model_path = ADAPTER_HOME / model_arg
-    
-    # 检查是否为新格式（分类头权重）
-    weight_files = list(model_path.glob("*.pt"))
-    if weight_files:
-      # 新格式：只有分类头权重
-      print(f"🔄 加载ESM3分类头权重: {weight_files[0].name}")
-      
-      # 创建ESM3分类模型实例
-      from saprot.config.config_dict import Default_config
-      config = copy.deepcopy(Default_config)
-      config.model.kwargs.num_labels = num_labels
-      config.model.model_py_path = model_type_dict[task_type]
-      config.model.kwargs.config_path = "esm3-open"  # 使用ESM3基础模型
-      
-      # 加载模型
-      model = my_load_model(config.model)
-      
-      # 加载分类头权重
-      model.load_checkpoint(str(weight_files[0]))
-      model.to(device)
-      model.eval()
-      
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if model_type == "Official ESM3 (1.4B)":
+        print("⚠️ 警告: 官方ESM3模型目前仅支持嵌入生成，不支持分类预测。")
+        print("📝 请使用 'Trained by yourself on ColabESM3' 选项来加载您训练的分类模型。")
+        # 创建一个临时的结果文件，避免下载按钮错误
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write("protein,prediction\n")
+        temp_file.write("ESM3不支持分类预测,请使用训练好的模型\n")
+        temp_file.close()
+        return "ESM3不支持分类预测", temp_file.name
     else:
-      # 旧格式：adapter权重（兼容性）
-      print("🔄 检测到旧格式adapter权重，使用兼容模式")
-      base_model = get_base_model(model_path)
-      lora_kwargs = {
-        "is_trainable": False,
-        "num_lora": 1,
-        "config_list": [{"lora_config_path": model_path}]
-      }
-      
-      from saprot.config.config_dict import Default_config
-      config = copy.deepcopy(Default_config)
-      config.model.kwargs.num_labels = num_labels
-      config.model.model_py_path = model_type_dict[task_type]
-      config.model.kwargs.config_path = base_model
-      config.model.kwargs.lora_kwargs = lora_kwargs
-      
-      model = my_load_model(config.model)
-      model.to(device)
-      model.eval()
-
-    # 开始预测
-    print(f"🎯 开始使用ESM3模型进行{original_task_type}预测...")
-    logits = []
-    pred_labels = []
-    
-    if task_type in ["pair_classification", "pair_regression"]:
-      print("⚠️ 暂不支持序列对预测任务")
-      return None, None
-    else:
-      for sa_seq in tqdm(rows, desc="预测中"):
-        # 对于ESM3模型，直接使用序列
-        with torch.no_grad():
-          pred = model(sa_seq, device=device)
-
-        if "regression" in task_type:
-          pred_labels.append(pred.item())
+        # 加载训练好的ESM3分类模型（仅支持新格式分类头权重）
+        task_type = load_task_type_from_model(model_type, str(model_arg).split("\n")[0].strip())
+        original_task_type = task_type
+        task_type = task_type_dict[task_type]
+        if model_type == "Shared by peers on SaprotHub":
+            snapshot_download(repo_id=model_arg, repo_type="model", local_dir=ADAPTER_HOME / model_arg)
+        model_path = ADAPTER_HOME / model_arg
+        weight_files = list(model_path.glob("*.pt"))
+        if weight_files:
+            print(f"🔄 加载ESM3分类头权重: {weight_files[0].name}")
+            from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
+            model = SaprotClassificationModel(num_labels=num_labels, config_path="esm3-open")
+            model.load_checkpoint(str(weight_files[0]))
+            model.to(device)
+            model = model.float()  # 保证模型为float32
+            model.eval()
         else:
-          if isinstance(pred, torch.Tensor):
-            logits.append(pred.softmax(dim=-1).cpu().numpy().tolist())
-            pred_labels.append(pred.argmax(dim=-1).cpu().numpy().item())
-          else:
-            # 处理其他可能的返回格式
-            logits.append([1.0])  # 占位符
-            pred_labels.append(0)   # 占位符
-
-  if "classification" in task_type:
-    df["predicted_probabilities"] = logits
-  df["predicted_label"] = pred_labels
-
-  return_label = pred_labels[0] if len(pred_labels) == 1 else None
-
-  # Save predictions
-  timestamp = str(datetime.now().strftime("%Y%m%d%H%M%S"))
-  output_file = OUTPUT_HOME / f'output_{timestamp}.csv'
-  df.to_csv(output_file, index=False)
-
-  return return_label, output_file
+            raise RuntimeError("未找到分类头权重文件，请检查模型目录！")
+        # 开始预测
+        print(f"🎯 开始使用ESM3模型进行{original_task_type}预测...")
+        logits = []
+        pred_labels = []
+        if task_type in ["pair_classification", "pair_regression"]:
+            print("⚠️ 暂不支持序列对预测任务")
+            return None, None
+        else:
+            for sa_seq in tqdm(rows, desc="预测中"):
+                with torch.no_grad():
+                    # 如果输入是tensor，确保为float32
+                    if isinstance(sa_seq, torch.Tensor):
+                        sa_seq = sa_seq.float()
+                    pred = model(sa_seq, device=device)
+                if "regression" in task_type:
+                    pred_labels.append(pred.item())
+                else:
+                    if isinstance(pred, torch.Tensor):
+                        # 修复预测标签格式问题
+                        softmax_probs = pred.softmax(dim=-1).cpu().numpy()
+                        logits.append(softmax_probs.tolist())
+                        pred_labels.append(pred.argmax(dim=-1).cpu().numpy().item())
+                    else:
+                        logits.append([1.0])
+                        pred_labels.append(0)
+        
+        # 保存预测结果到文件
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write("protein,prediction\n")
+        for i, label in enumerate(pred_labels):
+            protein_name = df.iloc[i]["protein"] if "protein" in df.columns else f"protein_{i+1}"
+            temp_file.write(f"{protein_name},{label}\n")
+        temp_file.close()
+        
+        # 对于单个预测，返回第一个预测标签；对于多个预测，返回预测标签列表
+        if len(pred_labels) == 1:
+            return pred_labels[0], temp_file.name
+        else:
+            return pred_labels, temp_file.name
 
 
 # Get data type that is compatible with the model
@@ -1801,6 +1789,15 @@ def load_task_type_from_model(model_type, model_arg):
 
 
 def generate_download_btn(path: str):
+  # 确保path是字符串类型
+  if path is None:
+    print("⚠️ 警告: 没有可下载的文件")
+    return HTML("<p>没有可下载的文件</p>")
+  
+  if not isinstance(path, str):
+    print(f"⚠️ 警告: 路径参数类型错误，期望字符串，得到 {type(path)}")
+    return HTML("<p>路径参数错误</p>")
+  
   if root_dir == "/content":
     btn = ipywidgets.Button(
       description="Download File",
@@ -1811,29 +1808,33 @@ def generate_download_btn(path: str):
     return btn
 
   else:
-    with open(path, "rb") as r:
-      res = r.read()
+    try:
+      with open(path, "rb") as r:
+        res = r.read()
 
-    #FILE
-    filename = os.path.basename(path)
-    b64 = base64.b64encode(res)
-    payload = b64.decode()
+      #FILE
+      filename = os.path.basename(path)
+      b64 = base64.b64encode(res)
+      payload = b64.decode()
 
-    #BUTTONS
-    html_buttons = '''<html>
-    <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    </head>
-    <body>
-    <a download="{filename}" href="data:text/csv;base64,{payload}" download>
-    <button class="p-Widget jupyter-widgets jupyter-button widget-button mod-warning">Download File</button>
-    </a>
-    </body>
-    </html>
-    '''
+      #BUTTONS
+      html_buttons = '''<html>
+      <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      </head>
+      <body>
+      <a download="{filename}" href="data:text/csv;base64,{payload}" download>
+      <button class="p-Widget jupyter-widgets jupyter-button widget-button mod-warning">Download File</button>
+      </a>
+      </body>
+      </html>
+      '''
 
-    html_button = html_buttons.format(payload=payload,filename=filename)
-    return HTML(html_button)
+      html_button = html_buttons.format(payload=payload,filename=filename)
+      return HTML(html_button)
+    except Exception as e:
+      print(f"⚠️ 警告: 无法读取文件 {path}: {e}")
+      return HTML(f"<p>无法读取文件: {e}</p>")
 
 
 def load_embedding_generation_model(model_type, model_arg):
@@ -3132,14 +3133,25 @@ library_name: peft
     weight_file_path = parent_dir / weight_file_name
     
     # 调试输出：显示当前查找的路径和文件
-    print(f"🔍 调试信息:")
-    print(f"  - 保存路径: {save_path}")
-    print(f"  - 上级目录: {parent_dir}")
-    print(f"  - 任务类型: {task_type.value} -> {task_type_value}")
-    print(f"  - 模型名称: {model_name_value}")
-    print(f"  - 查找权重文件: {weight_file_name}")
-    print(f"  - 权重文件路径: {weight_file_path}")
-    print(f"  - 权重文件是否存在: {weight_file_path.exists()}")
+    # print(f"🔍 调试信息:")
+    # print(f"  - 保存路径: {save_path}")
+    # print(f"  - 上级目录: {parent_dir}")
+    # print(f"  - 任务类型: {task_type} -> {task_type_internal}")
+    # print(f"  - 模型名称: {model_name}")
+    # print(f"  - 查找权重文件: {weight_file_name}")
+    # print(f"  - 权重文件路径: {weight_file_path}")
+    # print(f"  - 权重文件是否存在: {weight_file_path.exists()}")
+    # print(f"📊 权重文件大小: {file_size_mb:.2f} MB ({file_size:,} bytes)")
+    # print(f"🔄 开始复制权重文件...")
+    # print(f"✅ 复制并包含ESM3权重文件: {weight_file_name}")
+    # print(f"📁 复制后文件大小: {file_size_mb:.2f} MB")
+    # print(f"🔄 执行zip命令: {cmd}")
+    # print(f"📦 将要打包的文件: {files_to_zip}")
+    # print(f"📦 zip命令执行结果: {result}")
+    # print(f"✅ zip文件创建成功: {adapter_zip}")
+    # print(f"📊 zip文件大小: {zip_size:.2f} MB")
+    # print("🔽 Click to download the model to your local computer")
+    # print(f"🚀 开始自动下载: {adapter_zip}")
     
     if weight_file_path.exists():
         # 检查文件大小
@@ -3263,25 +3275,28 @@ def choose_pred_task():
     "available in <a href='https://huggingface.co/SaProtHub' target='blank'>SaprotHub</a> or their previously trained models for predictions. The model input for "
     "predicting should be consistent with its training format."), layout=Layout(width=WIDTH))
 
-  zeroshot_pred = Button(description='Mutational effect prediction', layout=Layout(width='500px', height='30px'), button_style="info")
-  zeroshot_intro = HTML(markdown.markdown(
-  f"The Mutational Effect Prediction section utilizes the Saprot 650M model. By analyzing the predicted mutation "
-  "scores, users can quickly identify mutations that are likely to enhance specific protein functions, such as "
-  "enzyme activity."
-  ), layout=Layout(width=WIDTH))
+  # 暂时注释掉 mutational effect prediction 功能
+  # zeroshot_pred = Button(description='Mutational effect prediction', layout=Layout(width='500px', height='30px'), button_style="info")
+  # zeroshot_intro = HTML(markdown.markdown(
+  # f"The Mutational Effect Prediction section utilizes the Saprot 650M model. By analyzing the predicted mutation "
+  # "scores, users can quickly identify mutations that are likely to enhance specific protein functions, such as "
+  # "enzyme activity."
+  # ), layout=Layout(width=WIDTH))
 
-  design_pred = Button(description='Protein sequence design', layout=Layout(width='500px', height='30px'), button_style="info")
-  design_intro = HTML(markdown.markdown(
-    f"The Sequence Design section enables generation of diverse protein sequences compatible with a given "
-    "structural backbone. Users can input their desired backbone coordinates and obtain novel sequences "
-    "optimized for that scaffold."
-    ), layout=Layout(width=WIDTH))
+  # 暂时注释掉 protein sequence design 功能
+  # design_pred = Button(description='Protein sequence design', layout=Layout(width='500px', height='30px'), button_style="info")
+  # design_intro = HTML(markdown.markdown(
+  #   f"The Sequence Design section enables generation of diverse protein sequences compatible with a given "
+  #   "structural backbone. Users can input their desired backbone coordinates and obtain novel sequences "
+  #   "optimized for that scaffold."
+  #   ), layout=Layout(width=WIDTH))
 
-  repr_pred = Button(description='Obtain protein-level embeddings', layout=Layout(width='500px', height='30px'), button_style="info")
-  repr_intro = HTML(markdown.markdown(
-    f"The Protein Embedding section enables extraction of sequence or structure embeddings using either "
-    "standard Saprot models or custom fine-tuned models for specialized analysis tasks."
-    ), layout=Layout(width=WIDTH))
+  # 暂时注释掉 obtain protein-level embeddings 按钮
+  # repr_pred = Button(description='Obtain protein-level embeddings', layout=Layout(width='500px', height='30px'), button_style="info")
+  # repr_intro = HTML(markdown.markdown(
+  #   f"The Protein Embedding section enables extraction of sequence or structure embeddings using either "
+  #   "standard Saprot models or custom fine-tuned models for specialized analysis tasks."
+  #   ), layout=Layout(width=WIDTH))
 
   back_btn = Button(description='Go back', layout=Layout(width='500px', height='30px'))
 
@@ -3293,23 +3308,29 @@ def choose_pred_task():
       normal_pred,
       normal_intro,
       sep_hint,
-      zeroshot_pred,
-      zeroshot_intro,
-      sep_hint,
-      design_pred,
-      design_intro,
-      sep_hint,
-      repr_pred,
-      repr_intro,
-      sep_hint,
+      # 暂时注释掉 mutational effect prediction 相关项目
+      # zeroshot_pred,
+      # zeroshot_intro,
+      # sep_hint,
+      # 暂时注释掉 protein sequence design 相关项目
+      # design_pred,
+      # design_intro,
+      # sep_hint,
+      # 暂时注释掉 obtain protein-level embeddings 相关项目
+      # repr_pred,
+      # repr_intro,
+      # sep_hint,
       # back_btn
       ]
 
   # Set click events
   normal_pred.on_click(partial(jump, next=protein_property_prediction))
-  zeroshot_pred.on_click(partial(jump, next=start_mut_pred))
-  design_pred.on_click(partial(jump, next=protein_sequence_design))
-  repr_pred.on_click(partial(jump, next=obtain_protein_embedding))
+  # 暂时注释掉 mutational effect prediction 点击事件
+  # zeroshot_pred.on_click(partial(jump, next=start_mut_pred))
+  # 暂时注释掉 protein sequence design 点击事件
+  # design_pred.on_click(partial(jump, next=protein_sequence_design))
+  # 暂时注释掉 obtain protein-level embedding 点击事件
+  # repr_pred.on_click(partial(jump, next=obtain_protein_embedding))
   back_btn.on_click(partial(jump, next=train_or_pred))
 
   display(*items)
@@ -3360,8 +3381,8 @@ def protein_property_prediction():
 
   model_hint = HTML(markdown.markdown("### Choose the model for prediction:"))
   model_type_box = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
-            value='Official ESM3 (1.4B)',
+            options=["Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            value="Trained by yourself on ColabESM3",
             description='Base model:',
             disabled=False,
             layout=Layout(width=WIDTH, height=HEIGHT)
@@ -3509,6 +3530,10 @@ def protein_property_prediction():
                         style={'description_width': 'initial'},
                         layout=Layout(width=WIDTH, height="140px"),
                         )
+        saprothub_link.layout.display = "none"
+
+      elif model_type_value == "Official ESM3 (1.4B)":
+        new_model_arg_box = select_adapter_from(None, use_model_from=model_type_value)
         saprothub_link.layout.display = "none"
 
       else:
@@ -3855,7 +3880,14 @@ def protein_property_prediction():
 
     report_str = ""
     if return_label is not None:
-      report_str = f"The predicted label is **{return_label}**"
+      # 确保返回的标签格式正确
+      if isinstance(return_label, list):
+        if len(return_label) == 1:
+          report_str = f"The predicted label is **{return_label[0]}**"
+        else:
+          report_str = f"Predicted labels: **{return_label}**"
+      else:
+        report_str = f"The predicted label is **{return_label}**"
 
     dividing_line = HTML(markdown.markdown(f"### {'-'*75}"))
     pred_hint = HTML(markdown.markdown(
@@ -3883,488 +3915,492 @@ def protein_property_prediction():
 ######################################################################
 #       Start mutational effect predction         #
 ######################################################################
-def start_mut_pred():
-  global refresh_module
-  refresh_module = start_mut_pred
+# 暂时注释掉 mutational effect prediction 功能
+# def start_mut_pred():
+#   global refresh_module
+#   refresh_module = start_mut_pred
 
-  WIDTH = "500px"
-  question = HTML(markdown.markdown("## Please choose the mutation task you want to perform"))
-  sep_hint = HTML(markdown.markdown(f"### {'-'*75}"))
+#   WIDTH = "500px"
+#   question = HTML(markdown.markdown("## Please choose the mutation task you want to perform"))
+#   sep_hint = HTML(markdown.markdown(f"### {'-'*75}"))
 
-  single_btn = Button(description='Single-site or Multi-site mutagenesis', layout=Layout(width=WIDTH, height='30px'), button_style="info")
-  single_intro = HTML(markdown.markdown(
-      f"You have to specify a mutation mannually and the model will output a score to predict whether this mutation "
-      "is good or not."
-      ), layout=Layout(width=WIDTH))
+#   single_btn = Button(description='Single-site or Multi-site mutagenesis', layout=Layout(width=WIDTH, height='30px'), button_style="info")
+#   single_intro = HTML(markdown.markdown(
+#       f"You have to specify a mutation mannually and the model will output a score to predict whether this mutation "
+#       "is good or not."
+#       ), layout=Layout(width=WIDTH))
 
-  all_btn = Button(description='Single-site saturation mutagenesis', layout=Layout(width=WIDTH, height='30px'), button_style="info")
-  all_intro = HTML(markdown.markdown(
-      f"You don't have to specify mutation mannually. The model will predict scores for all single-site mutations given a protein, "
-      "e.g. given a protein with the length of 200 the model will output 200 * 20 scores, each for a single-site mutation."
-      ), layout=Layout(width=WIDTH))
+#   all_btn = Button(description='Single-site saturation mutagenesis', layout=Layout(width=WIDTH, height='30px'), button_style="info")
+#   all_intro = HTML(markdown.markdown(
+#       f"You don't have to specify mutation mannually. The model will predict scores for all single-site mutations given a protein, "
+#       "e.g. given a protein with the length of 200 the model will output 200 * 20 scores, each for a single-site mutation."
+#       ), layout=Layout(width=WIDTH))
 
-  items = [
-      question,
-      sep_hint,
-      single_btn,
-      single_intro,
-      sep_hint,
-      all_btn,
-      all_intro,
-      sep_hint,
-  ]
+#   items = [
+#       question,
+#       sep_hint,
+#       single_btn,
+#       single_intro,
+#       sep_hint,
+#       all_btn,
+#       all_intro,
+#       sep_hint,
+#   ]
 
-  # Set click events
-  single_btn.on_click(partial(jump, next=single_mut_pred))
-  all_btn.on_click(partial(jump, next=saturation_mut_pred))
+#   # Set click events
+#   single_btn.on_click(partial(jump, next=single_mut_pred))
+#   all_btn.on_click(partial(jump, next=saturation_mut_pred))
 
-  display(*items)
+#   display(*items)
 
 
 ######################################################################
 #      Single-site or Multi-site mutagenesis        #
 ######################################################################
-def single_mut_pred():
-  global refresh_module
-  refresh_module = single_mut_pred
+# 暂时注释掉 single-site mutagenesis 功能
+# def single_mut_pred():
+#   global refresh_module
+#   refresh_module = single_mut_pred
 
-  hint = HTML(markdown.markdown("# Single-site or Multi-site mutagenesis\n\n## Please upload the protein structure\n If you only have protein sequence, you could use <a href='https://alphafoldserver.com' target='blank'>AlphaFold server</a> to predict its structure and upload it here."))
+#   hint = HTML(markdown.markdown("# Single-site or Multi-site mutagenesis\n\n## Please upload the protein structure\n If you only have protein sequence, you could use <a href='https://alphafoldserver.com' target='blank'>AlphaFold server</a> to predict its structure and upload it here."))
 
-  chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
-  input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width='500px', height='30px'))
-  upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
-  # upload_btn = ipywidgets.FileUpload(accept='',multiple=False, description="Upload protein structure (.pdb / .cif file)", layout=Layout(width='500px', height='30px'))
-  # upload_btn = ipywidgets.Button(description="Upload protein structure (.pdb / .cif file)", layout=Layout(width='500px', height='30px'))
-  upload_items = get_upload_box()
-  upload_ok_btn = ipywidgets.Button(
-      description="Submit",
-      layout=Layout(width='500px', height='30px'),
-      button_style="info",
-      )
+#   chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
+#   input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width='500px', height='30px'))
+#   upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
+#   # upload_btn = ipywidgets.FileUpload(accept='',multiple=False, description="Upload protein structure (.pdb / .cif file)", layout=Layout(width='500px', height='30px'))
+#   # upload_btn = ipywidgets.Button(description="Upload protein structure (.pdb / .cif file)", layout=Layout(width='500px', height='30px'))
+#   upload_items = get_upload_box()
+#   upload_ok_btn = ipywidgets.Button(
+#       description="Submit",
+#       layout=Layout(width='500px', height='30px'),
+#       button_style="info",
+#       )
 
-  items = [
-      hint,
-      chain_hint,
-      input_chain,
-      upload_hint,
-      *upload_items,
-      upload_ok_btn,
-  ]
+#   items = [
+#       hint,
+#       chain_hint,
+#       input_chain,
+#       upload_hint,
+#       *upload_items,
+#       upload_ok_btn,
+#   ]
 
-  # Set click events
-  def on_upload_file(button):
-    save_path = get_upload_file_path(upload_items)
-    name = os.path.basename(save_path)
-    assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
+#   # Set click events
+#   def on_upload_file(button):
+#     save_path = get_upload_file_path(upload_items)
+#     name = os.path.basename(save_path)
+#     assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
-    chain = input_chain.value
-    protein_list = [(save_path, chain)]
-    mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
-    seqs = mprs.run()
+#     chain = input_chain.value
+#     protein_list = [(save_path, chain)]
+#     mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
+#     seqs = mprs.run()
 
-    assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
+#     assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
 
-    sa_seq = seqs[0].split("\t")[-1]
-    aa_seq = sa_seq[0::2]
-    struc_seq = sa_seq[1::2].replace("#", "\#")
+#     sa_seq = seqs[0].split("\t")[-1]
+#     aa_seq = sa_seq[0::2]
+#     struc_seq = sa_seq[1::2].replace("#", "\#")
 
-    seq_info = HTML(markdown.markdown(f"**{name}**\n\n**Foldseek sequence (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Amino acid sequence:**\n\n{aa_seq}"))
+#     seq_info = HTML(markdown.markdown(f"**{name}**\n\n**Foldseek sequence (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Amino acid sequence:**\n\n{aa_seq}"))
 
-    # Mutation information box
-    input_hint = HTML(markdown.markdown(
-        "**Please input the mutation information:**"
-        )
-    )
-    pred_num_box = ipywidgets.RadioButtons(
-      options=['Single variant', 'multiple variants'],
-      disabled=False,
-      layout={'width': 'max-content'}, # If the items' names are long
-      description="How many variants do you want to predict?",
-      style={'description_width': 'initial'},
-      )
+#     # Mutation information box
+#     input_hint = HTML(markdown.markdown(
+#         "**Please input the mutation information:**"
+#         )
+#     )
+#     pred_num_box = ipywidgets.RadioButtons(
+#       options=['Single variant', 'multiple variants'],
+#       disabled=False,
+#       layout={'width': 'max-content'}, # If the items' names are long
+#       description="How many variants do you want to predict?",
+#       style={'description_width': 'initial'},
+#       )
 
-    mut_hint =  HTML(markdown.markdown(
-        "For single-site mutation, e.g. M1E means mutating the amino acid M to E at first position. "
-        "For multi-site mutation, you are expected to separate each position by ':', e.g. M1E:P2V"
-        )
-    )
+#     mut_hint =  HTML(markdown.markdown(
+#         "For single-site mutation, e.g. M1E means mutating the amino acid M to E at first position. "
+#         "For multi-site mutation, you are expected to separate each position by ':', e.g. M1E:P2V"
+#         )
+#     )
 
-    upload_csv_hint = HTML(markdown.markdown(
-              "<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/prediction/dataset/mut.jpg?raw=true' height='200px' width='400px' align='center'>\n\n"
-              "Please upload a ``.csv`` file that contains all mutations to predict. Please strictly follow the format above **(column names are also needed in the csv file)**. "
-              "Then click the start button."
-              ), layout=Layout(display="none"))
+#     upload_csv_hint = HTML(markdown.markdown(
+#               "<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/prediction/dataset/mut.jpg?raw=true' height='200px' width='400px' align='center'>\n\n"
+#               "Please upload a ``.csv`` file that contains all mutations to predict. Please strictly follow the format above **(column names are also needed in the csv file)**. "
+#               "Then click the start button."
+#               ), layout=Layout(display="none"))
 
-    upload_csv_items = get_upload_box()
-    for item in upload_csv_items[:4]:
-      item.layout.display = "none"
+#     upload_csv_items = get_upload_box()
+#     for item in upload_csv_items[:4]:
+#       item.layout.display = "none"
 
-    input_mut = ipywidgets.Text(
-        placeholder="Enter mutation information here, e.g. M1E", layout=Layout(width='1000px', height='30px'))
-    submit_btn = Button(description='Calculate mutation score', layout=Layout(width='500px', height='30px'), button_style="info")
+#     input_mut = ipywidgets.Text(
+#         placeholder="Enter mutation information here, e.g. M1E", layout=Layout(width='1000px', height='30px'))
+#     submit_btn = Button(description='Calculate mutation score', layout=Layout(width='500px', height='30px'), button_style="info")
 
 
-    new_items = items + [
-        seq_info,
-        input_hint,
-        pred_num_box,
-        mut_hint,
-        input_mut,
-        upload_csv_hint,
-        *upload_csv_items,
-        submit_btn
-        ]
+#     new_items = items + [
+#         seq_info,
+#         input_hint,
+#         pred_num_box,
+#         mut_hint,
+#         input_mut,
+#         upload_csv_hint,
+#         *upload_csv_items,
+#         submit_btn
+#         ]
 
-    def change_pred_num(change):
-      now_type = change["new"]
-      if now_type == "Single variant":
-        upload_csv_hint.layout.display = "none"
-        set_upload_visibility(upload_csv_items, "none")
-        input_mut.layout.display = None
+#     def change_pred_num(change):
+#       now_type = change["new"]
+#       if now_type == "Single variant":
+#         upload_csv_hint.layout.display = "none"
+#         set_upload_visibility(upload_csv_items, "none")
+#         input_mut.layout.display = None
 
-      else:
-        upload_csv_hint.layout.display = None
-        set_upload_visibility(upload_csv_items, "default")
-        input_mut.layout.display = "none"
+#       else:
+#         upload_csv_hint.layout.display = None
+#         set_upload_visibility(upload_csv_items, "default")
+#         input_mut.layout.display = "none"
 
-    # Click to calculate mutation score
-    def calc_mut_score(button):
-      if pred_num_box.value == "Single variant":
-        mut_info = input_mut.value
-        # Skip empty input
-        if mut_info.strip() == "":
-          return
+#     # Click to calculate mutation score
+#     def calc_mut_score(button):
+#       if pred_num_box.value == "Single variant":
+#         mut_info = input_mut.value
+#         # Skip empty input
+#         if mut_info.strip() == "":
+#           return
 
-        for single in mut_info.split(":"):
-          # Assert position valid
-          pos = int(single[1:-1])
-          assert 0 < pos <= len(aa_seq), f"The mutation position should be greater than 0 and not greater than the length of sequence ({len(aa_seq)})"
+#         for single in mut_info.split(":"):
+#           # Assert position valid
+#           pos = int(single[1:-1])
+#           assert 0 < pos <= len(aa_seq), f"The mutation position should be greater than 0 and not greater than the length of sequence ({len(aa_seq)})"
 
-          # Assert amino acid valid
-          ori_aa = single[0]
-          assert ori_aa == aa_seq[pos-1], f"The amino acid at position {pos} is not {ori_aa}! Please refer to the amino acid sequence above to find correct position (the counting starts from 1)."
+#           # Assert amino acid valid
+#           ori_aa = single[0]
+#           assert ori_aa == aa_seq[pos-1], f"The amino acid at position {pos} is not {ori_aa}! Please refer to the amino acid sequence above to find correct position (the counting starts from 1)."
 
-        print(f"Predict the mutation score for {mut_info}...")
-        score = predict_mut(sa_seq, mut_info)
-        score_hint = HTML(markdown.markdown(
-            f"The score for {mut_info} is <font color=red>{score.item()}</font>. **Please check <a href='https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#introduction-of-saprot-mutation-score' target='blank'>here</a> for the description of the mutation score.**"))
-        new_items = items + [seq_info, input_hint, pred_num_box, input_mut, upload_csv_hint, mut_hint, *upload_csv_items, submit_btn, score_hint]
-        custom_display(*new_items)
+#         print(f"Predict the mutation score for {mut_info}...")
+#         score = predict_mut(sa_seq, mut_info)
+#         score_hint = HTML(markdown.markdown(
+#             f"The score for {mut_info} is <font color=red>{score.item()}</font>. **Please check <a href='https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#introduction-of-saprot-mutation-score' target='blank'>here</a> for the description of the mutation score.**"))
+#         new_items = items + [seq_info, input_hint, pred_num_box, input_mut, upload_csv_hint, mut_hint, *upload_csv_items, submit_btn, score_hint]
+#         custom_display(*new_items)
 
-      else:
-        save_path = get_upload_file_path(upload_csv_items)
-        name = os.path.basename(save_path)
-        assert name.endswith(".csv"), "Please upload file with correct format (.csv)!"
+#       else:
+#         save_path = get_upload_file_path(upload_csv_items)
+#         name = os.path.basename(save_path)
+#         assert name.endswith(".csv"), "Please upload file with correct format (.csv)!"
 
-        df = pd.read_csv(save_path)
-        print(f"Predicting...")
-        zeroshot_model = load_zeroshot_model()
-        scores = []
-        for mut_info in tqdm(df["mutation"].values):
-          for single in mut_info.split(":"):
-            # Assert position valid
-            pos = int(single[1:-1])
-            assert 0 < pos <= len(aa_seq), f"For {mut_info}, The mutation position should be greater than 0 and not greater than the length of sequence ({len(aa_seq)})"
+#         df = pd.read_csv(save_path)
+#         print(f"Predicting...")
+#         zeroshot_model = load_zeroshot_model()
+#         scores = []
+#         for mut_info in tqdm(df["mutation"].values):
+#           for single in mut_info.split(":"):
+#             # Assert position valid
+#             pos = int(single[1:-1])
+#             assert 0 < pos <= len(aa_seq), f"For {mut_info}, The mutation position should be greater than 0 and not greater than the length of sequence ({len(aa_seq)})"
 
-            # Assert amino acid valid
-            ori_aa = single[0]
-            assert ori_aa == aa_seq[pos-1], f"For {mut_info}, The amino acid at position {pos} is not {ori_aa}! Please refer to the amino acid sequence above to find correct position (the counting starts from 1)."
+#             # Assert amino acid valid
+#             ori_aa = single[0]
+#             assert ori_aa == aa_seq[pos-1], f"For {mut_info}, The amino acid at position {pos} is not {ori_aa}! Please refer to the amino acid sequence above to find correct position (the counting starts from 1)."
 
-          score = zeroshot_model.predict_mut(sa_seq, mut_info)
-          scores.append(score.item())
+#           score = zeroshot_model.predict_mut(sa_seq, mut_info)
+#           scores.append(score.item())
 
-        df["score"] = scores
-        save_path = OUTPUT_HOME / "mutation_results.csv"
-        df.to_csv(save_path, index=False)
-        download_btn = generate_download_btn(save_path)
+#         df["score"] = scores
+#         save_path = OUTPUT_HOME / "mutation_results.csv"
+#         df.to_csv(save_path, index=False)
+#         download_btn = generate_download_btn(save_path)
 
-        pred_hint = HTML(markdown.markdown(
-          f"Prediction results have been saved to ``{save_path}``. You can click to download the results."
-          )
-        )
+#         pred_hint = HTML(markdown.markdown(
+#           f"Prediction results have been saved to ``{save_path}``. You can click to download the results."
+#           )
+#         )
 
-        new_items = items + [seq_info, input_hint, pred_num_box, input_mut, upload_csv_hint, mut_hint, *upload_csv_items, submit_btn, pred_hint, download_btn]
-        custom_display(*new_items)
+#         new_items = items + [seq_info, input_hint, pred_num_box, input_mut, upload_csv_hint, mut_hint, *upload_csv_items, submit_btn, pred_hint, download_btn]
+#         custom_display(*new_items)
 
-    pred_num_box.observe(change_pred_num, names="value")
-    submit_btn.on_click(
-        lambda btn: start_thread(calc_mut_score, (btn,))
-        )
-    custom_display(*new_items)
+#     pred_num_box.observe(change_pred_num, names="value")
+#     submit_btn.on_click(
+#         lambda btn: start_thread(calc_mut_score, (btn,))
+#         )
+#     custom_display(*new_items)
 
-  upload_ok_btn.on_click(on_upload_file)
-  display(*items)
+#   upload_ok_btn.on_click(on_upload_file)
+#   display(*items)
 
 
 ######################################################################
 #       Single-site saturation mutagenesis         #
 ######################################################################
-def saturation_mut_pred():
-  global refresh_module
-  refresh_module = saturation_mut_pred
+# 暂时注释掉 saturation mutagenesis 功能
+# def saturation_mut_pred():
+#   global refresh_module
+#   refresh_module = saturation_mut_pred
 
-  hint = HTML(markdown.markdown("# Single-site saturation mutagenesis\n\n## Please upload the protein structure\n If you only have protein sequence, you could use <a href='https://alphafoldserver.com' target='blank'>AlphaFold server</a> to predict its structure and upload it here."))
+#   hint = HTML(markdown.markdown("# Single-site saturation mutagenesis\n\n## Please upload the protein structure\n If you only have protein sequence, you could use <a href='https://alphafoldserver.com' target='blank'>AlphaFold server</a> to predict its structure and upload it here."))
 
-  chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
-  input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width='500px', height='30px'))
-  upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
-  upload_items = get_upload_box()
-  upload_ok_btn = ipywidgets.Button(
-      description="Submit",
-      layout=Layout(width='500px', height='30px'),
-      button_style="info",
-      )
+#   chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
+#   input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width='500px', height='30px'))
+#   upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
+#   upload_items = get_upload_box()
+#   upload_ok_btn = ipywidgets.Button(
+#       description="Submit",
+#       layout=Layout(width='500px', height='30px'),
+#       button_style="info",
+#       )
 
-  items = [
-      hint,
-      chain_hint,
-      input_chain,
-      upload_hint,
-      *upload_items,
-      upload_ok_btn,
-  ]
+#   items = [
+#       hint,
+#       chain_hint,
+#       input_chain,
+#       upload_hint,
+#       *upload_items,
+#       upload_ok_btn,
+#   ]
 
-  # Set click events
-  def on_upload_file(change):
-    save_path = get_upload_file_path(upload_items)
-    name = os.path.basename(save_path)
-    assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
+#   # Set click events
+#   def on_upload_file(change):
+#     save_path = get_upload_file_path(upload_items)
+#     name = os.path.basename(save_path)
+#     assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
-    chain = input_chain.value
-    protein_list = [(save_path, chain)]
-    mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
-    seqs = mprs.run()
+#     chain = input_chain.value
+#     protein_list = [(save_path, chain)]
+#     mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
+#     seqs = mprs.run()
 
-    assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
+#     assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
 
-    sa_seq = seqs[0].split("\t")[-1]
-    aa_seq = sa_seq[0::2]
-    struc_seq = sa_seq[1::2].replace("#", "\#")
+#     sa_seq = seqs[0].split("\t")[-1]
+#     aa_seq = sa_seq[0::2]
+#     struc_seq = sa_seq[1::2].replace("#", "\#")
 
-    seq_info = HTML(markdown.markdown(f"**{name}**\n\n**Foldseek sequence (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Amino acid sequence:**\n\n{aa_seq}"))
-    submit_btn = Button(description='Calculate mutation score for all single-site mutations', layout=Layout(width='500px', height='30px'), button_style="info")
+#     seq_info = HTML(markdown.markdown(f"**{name}**\n\n**Foldseek sequence (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Amino acid sequence:**\n\n{aa_seq}"))
+#     submit_btn = Button(description='Calculate mutation score for all single-site mutations', layout=Layout(width='500px', height='30px'), button_style="info")
 
 
-    new_items = items + [seq_info, submit_btn]
+#     new_items = items + [seq_info, submit_btn]
 
-    # Click to calculate mutation score
-    def calc_mut_score(button):
-      print(f"Predicting mutation scores for all single-site mutations...")
-      save_path = predict_all_mut(sa_seq)
-      score_hint = HTML(markdown.markdown(f"The result has been saved to {save_path}. You can click to download the file.\n\n"
-      "**Please check <a href='https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#introduction-of-saprot-mutation-score' target='blank'>here</a> for the description of the mutation score.**"))
-      download_btn = generate_download_btn(save_path)
+#     # Click to calculate mutation score
+#     def calc_mut_score(button):
+#       print(f"Predicting mutation scores for all single-site mutations...")
+#       save_path = predict_all_mut(sa_seq)
+#       score_hint = HTML(markdown.markdown(f"The result has been saved to {save_path}. You can click to download the file.\n\n"
+#       "**Please check <a href='https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#introduction-of-saprot-mutation-score' target='blank'>here</a> for the description of the mutation score.**"))
+#       download_btn = generate_download_btn(save_path)
 
-      new_items = items + [seq_info, submit_btn, score_hint, download_btn]
-      custom_display(*new_items)
+#       new_items = items + [seq_info, submit_btn, score_hint, download_btn]
+#       custom_display(*new_items)
 
-    submit_btn.on_click(
-        # disable_wrapper(
-        #     lambda btn: start_thread(calc_mut_score, (btn,))
-        #     )
-        lambda btn: start_thread(calc_mut_score, (btn,))
-          )
-    custom_display(*new_items)
+#     submit_btn.on_click(
+#         # disable_wrapper(
+#         #     lambda btn: start_thread(calc_mut_score, (btn,))
+#         #     )
+#         lambda btn: start_thread(calc_mut_score, (btn,))
+#           )
+#     custom_display(*new_items)
 
-  upload_ok_btn.on_click(on_upload_file)
+#   upload_ok_btn.on_click(on_upload_file)
 
-  display(*items)
+#   display(*items)
 
 
 #####################################################################
 #          Protein sequence design           #
 #####################################################################
-def protein_sequence_design():
-  global refresh_module
-  refresh_module = protein_sequence_design
+# 暂时注释掉 protein sequence design 功能
+# def protein_sequence_design():
+#   global refresh_module
+#   refresh_module = protein_sequence_design
 
-  title = HTML(markdown.markdown("## Protein sequence design"))
-  WIDTH = "500px"
-  HEIGHT= "30px"
+#   title = HTML(markdown.markdown("## Protein sequence design"))
+#   WIDTH = "500px"
+#   HEIGHT= "30px"
 
-  task_hint = HTML(markdown.markdown("### Please upload the structure backbone:"))
-  chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
-  input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width=WIDTH, height=HEIGHT))
-  upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
-  upload_items = get_upload_box()
-  upload_ok_btn = ipywidgets.Button(
-      description="Submit",
-      layout=Layout(width='500px', height='30px'),
-      button_style="info",
-      )
+#   task_hint = HTML(markdown.markdown("### Please upload the structure backbone:"))
+#   chain_hint = HTML(markdown.markdown("Chain (to be extracted from the structure):"))
+#   input_chain = ipywidgets.Text(value="A",placeholder=f'Enter the name of chain here', layout=Layout(width=WIDTH, height=HEIGHT))
+#   upload_hint = HTML(markdown.markdown("Upload the protein structure:"))
+#   upload_items = get_upload_box()
+#   upload_ok_btn = ipywidgets.Button(
+#       description="Submit",
+#       layout=Layout(width='500px', height='30px'),
+#       button_style="info",
+#       )
 
-  items = [
-      title,
-      task_hint,
-      chain_hint,
-      input_chain,
-      upload_hint,
-      *upload_items,
-      upload_ok_btn,
-  ]
+#   items = [
+#       title,
+#       task_hint,
+#       chain_hint,
+#       input_chain,
+#       upload_hint,
+#       *upload_items,
+#       upload_ok_btn,
+#   ]
 
-  # Set click events
-  def parse_structure(change):
-    save_path = get_upload_file_path(upload_items)
-    name = os.path.basename(save_path)
-    assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
+#   # Set click events
+#   def parse_structure(change):
+#     save_path = get_upload_file_path(upload_items)
+#     name = os.path.basename(save_path)
+#     assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
-    chain = input_chain.value
-    protein_list = [(save_path, chain)]
-    mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
-    seqs = mprs.run()
+#     chain = input_chain.value
+#     protein_list = [(save_path, chain)]
+#     mprs = MultipleProcessRunnerSimplifier(protein_list, pdb2sequence, n_process=2, return_results=True, verbose=False)
+#     seqs = mprs.run()
 
-    assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
+#     assert len(seqs) != 0, f"The specified chain '{chain}' does not exist in the structure!"
 
-    sa_seq = seqs[0].split("\t")[-1]
-    aa_seq = sa_seq[0::2]
-    struc_seq = sa_seq[1::2].replace("#", "\#")
+#     sa_seq = seqs[0].split("\t")[-1]
+#     aa_seq = sa_seq[0::2]
+#     struc_seq = sa_seq[1::2].replace("#", "\#")
 
-    seq_info = HTML(markdown.markdown(
-        f"**Foldseek sequence of chain {chain} (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Backbone visualization of {name} (chains are displayed with different colors):**"
-        ), layout=Layout(width=WIDTH))
+#     seq_info = HTML(markdown.markdown(
+#         f"**Foldseek sequence of chain {chain} (\"#\" means low pLDDT positions that are masked):**\n\n{struc_seq}\n\n**Backbone visualization of {name} (chains are displayed with different colors):**"
+#         ), layout=Layout(width=WIDTH))
 
-    # Sampling config
-    sampling_method_box = ipywidgets.Dropdown(
-              options=['argmax', 'multinomial'],
-              value='argmax',
-              description='Sampling methodology:',
-              disabled=False,
-              layout=Layout(width=WIDTH, height=HEIGHT),
-              style={'description_width': 'initial'},
-            )
-    sampling_num = ipywidgets.BoundedIntText(
-          value=1,
-          min=1,
-          max=100,
-          step=1,
-          description='Sampling num:',
-          disabled=False,
-          style={'description_width': 'initial'},
-          layout=Layout(width=WIDTH, height=HEIGHT)
-        )
-    sampling_intro = HTML(markdown.markdown(
-        f"*For each position, Saprot will predict the probability of every amino acid occuring at this position. ***argmax*** means the model "
-        "will choose the amino acid with highest probability as its prediction. ***multinomial*** means the model will sample amino acids based on "
-        "the probability distribution.*"
-        ), layout=Layout(width=WIDTH))
+#     # Sampling config
+#     sampling_method_box = ipywidgets.Dropdown(
+#               options=['argmax', 'multinomial'],
+#               value='argmax',
+#               description='Sampling methodology:',
+#               disabled=False,
+#               layout=Layout(width=WIDTH, height=HEIGHT),
+#               style={'description_width': 'initial'},
+#             )
+#     sampling_num = ipywidgets.BoundedIntText(
+#           value=1,
+#           min=1,
+#           max=100,
+#           step=1,
+#           description='Sampling num:',
+#           disabled=False,
+#           style={'description_width': 'initial'},
+#           layout=Layout(width=WIDTH, height=HEIGHT)
+#         )
+#     sampling_intro = HTML(markdown.markdown(
+#         f"*For each position, Saprot will predict the probability of every amino acid occuring at this position. ***argmax*** means the model "
+#         "will choose the amino acid with highest probability as its prediction. ***multinomial*** means the model will sample amino acids based on "
+#         "the probability distribution.*"
+#         ), layout=Layout(width=WIDTH))
 
-    save_name = ipywidgets.Text(
-          value="predicted_seq",
-          description='Save name:',
-          disabled=False,
-          style={'description_width': 'initial'},
-          layout=Layout(width=WIDTH, height=HEIGHT)
-        )
-
-
-    pred_hint = HTML(markdown.markdown(f"### {'-'*75}"))
-    pred_btn = Button(description='Predict protein sequence', layout=Layout(width=WIDTH, height=HEIGHT), button_style="info")
-
-    esmfold_hint = HTML(markdown.markdown(
-        f"### You could use ESMFold to evaluate the quality of the predicted sequence\n\n"
-        "#### <font color=red>Warning: If you are using Google T4 GPU, it will run out of memory!</font>"
-        ))
-    esmfold_input_box = ipywidgets.Text(
-          value="",
-          placeholder = "Copy the predicted sequence and paste it here",
-          disabled=False,
-          style={'description_width': 'initial'},
-          layout=Layout(width=WIDTH, height=HEIGHT)
-        )
-    esmfold_pred_btn = Button(description='Predict structure', layout=Layout(width=WIDTH, height=HEIGHT), button_style="info")
-
-    def change_sampling_method(change):
-      sampling_method = change["new"]
-      if sampling_method == "multinomial":
-        sampling_num.layout.display = None
-      else:
-        sampling_num.layout.display = "none"
-
-    # Predict protein sequence
-    def predict(button):
-      print("Predicting sequence...")
-
-      struc_seq = sa_seq[1::2]
-      masked_aa_seq = "#" * len(struc_seq)
-      methods = sampling_method_box.value
-      num_samples = sampling_num.value
-
-      pred_seqs = inverse_folding(masked_aa_seq, struc_seq, methods, num_samples)
-      print(pred_seqs)
-
-      save_seq_path = f"{root_dir}/SaprotHub/output/{save_name.value}.fasta"
-      pred_seq_hint = "**Predicted sequences are listed below:**\n\n"
-      with open(save_seq_path, "w") as w:
-        for i, aa_seq in enumerate(pred_seqs):
-          pred_seq_hint += f"{i+1}. {aa_seq}\n\n"
-          w.write(f">predicted_seq_{i}\n{aa_seq}\n")
-
-      pred_seq_hint += "You can click the button to dowanload the predictions."
-      pred_seq_hint = HTML(markdown.markdown(pred_seq_hint))
-      download_btn = generate_download_btn(save_seq_path)
-
-      # Update the display
-      clear_output()
-      display(*items)
-      display(seq_info)
-      show_pdb(save_path, color="chain").show()
-      display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn, pred_seq_hint, download_btn, esmfold_hint, esmfold_input_box, esmfold_pred_btn)
-      display(*system_widgets)
-
-      def esmfold_pred(button):
-        print("Predicting structure...")
-        aa_seq = esmfold_input_box.value
-        pred_pdb_path = predict_structure(aa_seq)
-
-        # Update the display after using ESMFold
-        clear_output()
-        display(*items)
-        display(seq_info)
-        show_pdb(save_path, color="chain").show()
-        display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn, pred_seq_hint, download_btn, esmfold_hint, esmfold_input_box, esmfold_pred_btn)
-        print("Predicted structure by ESMFold:")
-
-        # Display predicted structure
-        color = "lDDT"
-        show_sidechains = False
-        show_mainchains = False
-        show_pdb(pred_pdb_path, show_sidechains, show_mainchains, color).show()
-        if color == "lDDT":
-          plot_plddt_legend().show()
-        display(*system_widgets)
+#     save_name = ipywidgets.Text(
+#           value="predicted_seq",
+#           description='Save name:',
+#           disabled=False,
+#           style={'description_width': 'initial'},
+#           layout=Layout(width=WIDTH, height=HEIGHT)
+#         )
 
 
-      esmfold_pred_btn.on_click(
-          # disable_wrapper(
-          #     lambda btn: start_thread(esmfold_pred, (btn,))
-          #     )
-          lambda btn: start_thread(esmfold_pred, (btn,))
-          )
+#     pred_hint = HTML(markdown.markdown(f"### {'-'*75}"))
+#     pred_btn = Button(description='Predict protein sequence', layout=Layout(width=WIDTH, height=HEIGHT), button_style="info")
+
+#     esmfold_hint = HTML(markdown.markdown(
+#         f"### You could use ESMFold to evaluate the quality of the predicted sequence\n\n"
+#         "#### <font color=red>Warning: If you are using Google T4 GPU, it will run out of memory!</font>"
+#         ))
+#     esmfold_input_box = ipywidgets.Text(
+#           value="",
+#           placeholder = "Copy the predicted sequence and paste it here",
+#           disabled=False,
+#           style={'description_width': 'initial'},
+#           layout=Layout(width=WIDTH, height=HEIGHT)
+#         )
+#     esmfold_pred_btn = Button(description='Predict structure', layout=Layout(width=WIDTH, height=HEIGHT), button_style="info")
+
+#     def change_sampling_method(change):
+#       sampling_method = change["new"]
+#       if sampling_method == "multinomial":
+#         sampling_num.layout.display = None
+#       else:
+#         sampling_num.layout.display = "none"
+
+#     # Predict protein sequence
+#     def predict(button):
+#       print("Predicting sequence...")
+
+#       struc_seq = sa_seq[1::2]
+#       masked_aa_seq = "#" * len(struc_seq)
+#       methods = sampling_method_box.value
+#       num_samples = sampling_num.value
+
+#       pred_seqs = inverse_folding(masked_aa_seq, struc_seq, methods, num_samples)
+#       print(pred_seqs)
+
+#       save_seq_path = f"{root_dir}/SaprotHub/output/{save_name.value}.fasta"
+#       pred_seq_hint = "**Predicted sequences are listed below:**\n\n"
+#       with open(save_seq_path, "w") as w:
+#         for i, aa_seq in enumerate(pred_seqs):
+#           pred_seq_hint += f"{i+1}. {aa_seq}\n\n"
+#           w.write(f">predicted_seq_{i}\n{aa_seq}\n")
+
+#       pred_seq_hint += "You can click the button to dowanload the predictions."
+#       pred_seq_hint = HTML(markdown.markdown(pred_seq_hint))
+#       download_btn = generate_download_btn(save_seq_path)
+
+#       # Update the display
+#       clear_output()
+#       display(*items)
+#       display(seq_info)
+#       show_pdb(save_path, color="chain").show()
+#       display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn, pred_seq_hint, download_btn, esmfold_hint, esmfold_input_box, esmfold_pred_btn)
+#       display(*system_widgets)
+
+#       def esmfold_pred(button):
+#         print("Predicting structure...")
+#         aa_seq = esmfold_input_box.value
+#         pred_pdb_path = predict_structure(aa_seq)
+
+#         # Update the display after using ESMFold
+#         clear_output()
+#         display(*items)
+#         display(seq_info)
+#         show_pdb(save_path, color="chain").show()
+#         display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn, pred_seq_hint, download_btn, esmfold_hint, esmfold_input_box, esmfold_pred_btn)
+#         print("Predicted structure by ESMFold:")
+
+#         # Display predicted structure
+#         color = "lDDT"
+#         show_sidechains = False
+#         show_mainchains = False
+#         show_pdb(pred_pdb_path, show_sidechains, show_mainchains, color).show()
+#         if color == "lDDT":
+#           plot_plddt_legend().show()
+#         display(*system_widgets)
 
 
-    # Set click events
-    sampling_method_box.observe(change_sampling_method, names="value")
-    pred_btn.on_click(
-        # disable_wrapper(
-            # lambda btn: start_thread(predict, (btn,))
-            # )
-            lambda btn: start_thread(predict, (btn,))
-        )
+#       esmfold_pred_btn.on_click(
+#           # disable_wrapper(
+#           #     lambda btn: start_thread(esmfold_pred, (btn,))
+#           #     )
+#           lambda btn: start_thread(esmfold_pred, (btn,))
+#           )
 
-    # Set default state
-    sampling_num.layout.display = "none"
 
-    # Update the display
-    clear_output()
-    display(*items)
-    display(seq_info)
-    show_pdb(save_path, color="chain").show()
-    display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn)
-    display(*system_widgets)
+#     # Set click events
+#     sampling_method_box.observe(change_sampling_method, names="value")
+#     pred_btn.on_click(
+#         # disable_wrapper(
+#             # lambda btn: start_thread(predict, (btn,))
+#             # )
+#             lambda btn: start_thread(predict, (btn,))
+#         )
 
-  upload_ok_btn.on_click(parse_structure)
-  display(*items)
+#     # Set default state
+#     sampling_num.layout.display = "none"
+
+#     # Update the display
+#     clear_output()
+#     display(*items)
+#     display(seq_info)
+#     show_pdb(save_path, color="chain").show()
+#     display(sampling_method_box, sampling_num, sampling_intro, pred_hint, pred_btn)
+#     display(*system_widgets)
+
+#   upload_ok_btn.on_click(parse_structure)
+#   display(*items)
 
 
 def obtain_protein_embedding():
@@ -4388,7 +4424,7 @@ def obtain_protein_embedding():
 
   model_hint = HTML(markdown.markdown("### Choose the model for embedding generation:"))
   model_type_box = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)'],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
