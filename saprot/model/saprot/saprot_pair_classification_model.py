@@ -555,8 +555,8 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 
                 param_count = sum(p.numel() for p in self.classification_head.parameters())
                 total_params += param_count
-                print(f"🔍 保存分类头权重:")
-                print(f"  - 参数数量: {param_count:,}")
+                # print(f"🔍 保存分类头权重:")
+                # print(f"  - 参数数量: {param_count:,}")
             
             # 检查是否使用了LoRA，如果是则保存LoRA参数
             from saprot.utils.esm3_lora import ESM3LoRAWrapper
@@ -572,13 +572,13 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 
                 lora_param_count = sum(p.numel() for p in lora_state.values())
                 total_params += lora_param_count
-                print(f"🔍 保存LoRA权重:")
-                print(f"  - LoRA参数数量: {lora_param_count:,}")
-                print(f"  - LoRA rank: {self.model.r}")
-                print(f"  - Target modules: {len(self.model.lora_layers)}")
+                # print(f"🔍 保存LoRA权重:")
+                # print(f"  - LoRA参数数量: {lora_param_count:,}")
+                # print(f"  - LoRA rank: {self.model.r}")
+                # print(f"  - Target modules: {len(self.model.lora_layers)}")
             
-            print(f"  - 总参数数量: {total_params:,}")
-            print(f"  - 保存路径: {save_path}")
+            # print(f"  - 总参数数量: {total_params:,}")
+            # print(f"  - 保存路径: {save_path}")
             
             if not save_weights_only:
                 # 如果需要保存训练状态
@@ -597,7 +597,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             
             # 验证保存的文件大小
             saved_size = os.path.getsize(save_path) / (1024 * 1024)
-            print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
+            # print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
             print(f"❌ 保存分类头权重失败: {str(e)}")
@@ -626,7 +626,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             if os.path.exists(checkpoint_file):
                 checkpoint_path = checkpoint_file
             else:
-                print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                # print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
                 return
         
         if not os.path.exists(checkpoint_path):
