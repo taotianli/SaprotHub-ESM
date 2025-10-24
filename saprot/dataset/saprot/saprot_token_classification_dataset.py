@@ -3,7 +3,7 @@ import random
 import torch
 
 from ..data_interface import register_dataset
-from transformers import AutoTokenizer, EsmTokenizer
+# from transformers import AutoTokenizer, EsmTokenizer  # 不再需要transformers tokenizer
 from ..lmdb_dataset import *
 from data.data_transform import pad_sequences
 from esm.models.esm3 import ESM3
@@ -35,15 +35,10 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         self.esm_model = None
         self.model_device = 'cpu'  # 默认CPU，会在set_esm_model时更新
         
-        # Only initialize tokenizer if provided and not using ESM3
-        if tokenizer is not None:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer) if not isinstance(tokenizer, str) or 'esm3' not in tokenizer.lower() else None
-            self.is_saprot_model = 'saprot' in tokenizer.lower() if isinstance(tokenizer, str) else False
-            self.is_esm3_model = 'esm3' in tokenizer.lower() if isinstance(tokenizer, str) else False
-        else:
-            self.tokenizer = None
-            self.is_saprot_model = False  # ESM3 doesn't need saprot tokenizer
-            self.is_esm3_model = True  # Default to ESM3 when no tokenizer provided
+        # 直接设置为ESM3模式，不使用transformers tokenizer
+        self.tokenizer = None
+        self.is_saprot_model = False  # ESM3 doesn't need saprot tokenizer
+        self.is_esm3_model = True  # 始终使用ESM3
         
         self.max_length = max_length
         self.fixed_seq_length = fixed_seq_length
@@ -102,10 +97,9 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         if isinstance(seq, list):
             seq = "".join(seq)
 
-        if self.is_esm3_model:
-            # 在主线程中进行ESM3编码
-            try:
-                if self.esm_model is not None:
+        # 始终使用ESM3编码
+        try:
+            if self.esm_model is not None:
                     # 使用ESM3模型编码sequence
                     # print(f"[token分类数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
                     
@@ -158,37 +152,17 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                 # print(f"[token分类数据集调试] 索引 {index} - ❌ ESM3编码失败: {str(e)}")
                 # 发生错误时返回原始序列
                 sequence_embedding = seq
-            
-            # 对于ESM3模型，处理标签长度以匹配固定序列长度
-            if torch.is_tensor(sequence_embedding):
-                # 如果sequence_embedding是tensor，标签也需要对应调整
-                label = self._pad_or_truncate_list(label, self.fixed_seq_length, -1)
-                label = torch.tensor(label, dtype=torch.long, device=self.model_device)
-            else:
-                # 如果是原始序列，直接使用原始标签
-                label = torch.tensor(label, dtype=torch.long)
-                
-            return sequence_embedding, label
-        elif self.is_saprot_model:
-            processed_seq = []
-            for aa in seq:
-                processed_seq.append(aa + "#")
-            seq = processed_seq
-            seq = " ".join(seq)
-            tokens = self.tokenizer.tokenize(seq)[:self.max_length]
-            seq = " ".join(tokens)
-            # Add -1 to the start and end of the label to ignore the cls token
-            label = [-1] + label + [-1]
-            label = torch.tensor(label, dtype=torch.long)
-            return seq, label
+        
+        # 处理标签长度以匹配固定序列长度
+        if torch.is_tensor(sequence_embedding):
+            # 如果sequence_embedding是tensor，标签也需要对应调整
+            label = self._pad_or_truncate_list(label, self.fixed_seq_length, -1)
+            label = torch.tensor(label, dtype=torch.long, device=self.model_device)
         else:
-            seq = " ".join(seq)
-            tokens = self.tokenizer.tokenize(seq)[:self.max_length]
-            seq = " ".join(tokens)
-            # Add -1 to the start and end of the label to ignore the cls token
-            label = [-1] + label + [-1]
+            # 如果是原始序列，直接使用原始标签
             label = torch.tensor(label, dtype=torch.long)
-            return seq, label
+            
+        return sequence_embedding, label
 
     def __len__(self):
         return int(self._get("length"))
@@ -196,11 +170,11 @@ class SaprotTokenClassificationDataset(LMDBDataset):
     def collate_fn(self, batch):
         seqs, label_ids = tuple(zip(*batch))
 
-        if self.is_esm3_model:
-            # 检查第一个元素的类型来决定如何处理
-            first_seq = seqs[0]
-            
-            if torch.is_tensor(first_seq):
+        # 始终使用ESM3处理
+        # 检查第一个元素的类型来决定如何处理
+        first_seq = seqs[0]
+        
+        if torch.is_tensor(first_seq):
                 # 所有输入都是token tensor，且应该已经是固定长度
                 # print(f"[token分类数据集调试] 批处理大小: {len(seqs)}, 固定token长度: {first_seq.shape}")
                 
@@ -251,20 +225,11 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                     inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in seqs]}
                     label_ids = pad_sequences(label_ids, constant_value=-1)
                     labels = {"labels": label_ids}
-            else:
-                # 包含原始序列（编码失败的情况）
-                # print(f"[token分类数据集调试] 批处理包含原始序列，将由模型处理")
-                inputs = {"sequences": seqs}
-                label_ids = pad_sequences(label_ids, constant_value=-1)
-                labels = {"labels": label_ids}
-            
-            return inputs, labels
         else:
-            # 对于其他模型，使用原有的处理逻辑
+            # 包含原始序列（编码失败的情况）
+            # print(f"[token分类数据集调试] 批处理包含原始序列，将由模型处理")
+            inputs = {"sequences": seqs}
             label_ids = pad_sequences(label_ids, constant_value=-1)
             labels = {"labels": label_ids}
-
-            encoder_info = self.tokenizer.batch_encode_plus(seqs, return_tensors='pt', padding=True)
-            inputs = {"inputs": encoder_info}
-    
-            return inputs, labels
+        
+        return inputs, labels

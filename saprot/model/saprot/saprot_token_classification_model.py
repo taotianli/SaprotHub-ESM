@@ -1,10 +1,42 @@
-import torchmetrics
+import os
+
+# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
+os.environ['DISABLE_TELEMETRY'] = '1'
+
 import torch
 import torch.distributed as dist
+
+# 自定义Accuracy实现，避免导入torchmetrics（会触发accelerate/numpy兼容性问题）
+class SimpleAccuracy:
+    """简单的准确率计算，替代torchmetrics.Accuracy"""
+    def __init__(self, task="multiclass", num_classes=2):
+        self.task = task
+        self.num_classes = num_classes
+        self.correct = 0
+        self.total = 0
+    
+    def update(self, preds, target):
+        """更新统计"""
+        self.correct += (preds == target).sum().item()
+        self.total += target.numel()
+    
+    def compute(self):
+        """计算准确率"""
+        if self.total == 0:
+            return 0.0
+        return self.correct / self.total
+    
+    def reset(self):
+        """重置统计"""
+        self.correct = 0
+        self.total = 0
 
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
+# 导入学习率调度器
+from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
 @register_model
@@ -62,8 +94,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         return tp, tn, fp, fn, mcc
     
     def initialize_metrics(self, stage):
-        # For newer versions of torchmetrics, need to specify task type
-        return {f"{stage}_acc": torchmetrics.Accuracy(task="multiclass", num_classes=self.num_labels)}
+        # 使用自定义的SimpleAccuracy，避免torchmetrics的依赖问题
+        return {f"{stage}_acc": SimpleAccuracy(task="multiclass", num_classes=self.num_labels)}
     
     def forward(self, inputs=None, coords=None, sequences=None, embeddings=None, tokens=None, **kwargs):
         # 获取设备和数据类型
@@ -270,19 +302,29 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
 
             # Reset train metrics
             self.reset_metrics("train")
+        elif stage == "valid":
+            # 收集验证损失用于epoch结束时计算平均值
+            self.valid_outputs.append(loss.detach())
+        elif stage == "test":
+            # 收集测试损失用于epoch结束时计算平均值
+            self.test_outputs.append(loss.detach())
         
         return loss
     
     def on_test_epoch_end(self):
         log_dict = self.get_log_dict("test")
-        log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
+        if len(self.test_outputs) > 0:
+            log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
+        else:
+            log_dict["test_loss"] = torch.tensor(0.0)
 
-        preds = torch.cat(self.preds, dim=-1)
-        target = torch.cat(self.targets, dim=-1)
-        tp, tn, fp, fn, _ = self.compute_mcc(preds, target)
-        
-        mcc = (tp * tn - fp * fn) / ((tp + fp).sqrt() * (tp + fn).sqrt() * (tn + fp).sqrt() * (tn + fn).sqrt())
-        log_dict["test_mcc"] = mcc
+        if len(self.preds) > 0 and len(self.targets) > 0:
+            preds = torch.cat(self.preds, dim=-1)
+            target = torch.cat(self.targets, dim=-1)
+            tp, tn, fp, fn, _ = self.compute_mcc(preds, target)
+            
+            mcc = (tp * tn - fp * fn) / ((tp + fp).sqrt() * (tp + fn).sqrt() * (tn + fp).sqrt() * (tn + fn).sqrt())
+            log_dict["test_mcc"] = mcc
 
         # Reset the preds and targets
         self.preds = []
@@ -294,14 +336,18 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     
     def on_validation_epoch_end(self):
         log_dict = self.get_log_dict("valid")
-        log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
+        if len(self.valid_outputs) > 0:
+            log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
+        else:
+            log_dict["valid_loss"] = torch.tensor(0.0)
 
-        preds = torch.cat(self.preds, dim=-1)
-        target = torch.cat(self.targets, dim=-1)
-        tp, tn, fp, fn, _ = self.compute_mcc(preds, target)
-        
-        mcc = (tp * tn - fp * fn) / ((tp + fp).sqrt() * (tp + fn).sqrt() * (tn + fp).sqrt() * (tn + fn).sqrt())
-        log_dict["valid_mcc"] = mcc
+        if len(self.preds) > 0 and len(self.targets) > 0:
+            preds = torch.cat(self.preds, dim=-1)
+            target = torch.cat(self.targets, dim=-1)
+            tp, tn, fp, fn, _ = self.compute_mcc(preds, target)
+            
+            mcc = (tp * tn - fp * fn) / ((tp + fp).sqrt() * (tp + fn).sqrt() * (tn + fp).sqrt() * (tn + fn).sqrt())
+            log_dict["valid_mcc"] = mcc
 
         # Reset the preds and targets
         self.preds = []
@@ -371,16 +417,59 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         
         # 根据调度器名称选择正确的类
         if lr_scheduler_name == "ConstantLRScheduler":
-            from utils.lr_scheduler import ConstantLRScheduler
             lr_scheduler_cls = ConstantLRScheduler
         elif lr_scheduler_name == "CosineAnnealingLRScheduler":
-            from utils.lr_scheduler import CosineAnnealingLRScheduler
             lr_scheduler_cls = CosineAnnealingLRScheduler
         elif lr_scheduler_name == "Esm2LRScheduler":
-            from utils.lr_scheduler import Esm2LRScheduler
             lr_scheduler_cls = Esm2LRScheduler
+        elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
+            # 如果是PyTorch内置的调度器
+            lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
-            # 使用eval来处理其他调度器
-            lr_scheduler_cls = eval(lr_scheduler_name)
+            # 回退到ConstantLRScheduler
+            lr_scheduler_cls = ConstantLRScheduler
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
+    
+    def save_checkpoint(self, path: str):
+        """保存checkpoint - 只保存分类头和LoRA权重"""
+        checkpoint = {
+            'classifier_state_dict': self.classifier.state_dict(),
+        }
+        
+        # 保存LoRA权重（如果存在）
+        if hasattr(self, 'model') and self.model is not None:
+            lora_state = {}
+            for name, param in self.model.named_parameters():
+                if 'lora' in name.lower() and param.requires_grad:
+                    lora_state[name] = param.data.cpu()
+            if lora_state:
+                checkpoint['lora_state_dict'] = lora_state
+        
+        torch.save(checkpoint, path)
+        print(f"✅ 已保存checkpoint到: {path}")
+        print(f"   - 分类头参数: {len(checkpoint['classifier_state_dict'])} 个")
+        if 'lora_state_dict' in checkpoint:
+            print(f"   - LoRA参数: {len(checkpoint['lora_state_dict'])} 个")
+    
+    def load_checkpoint(self, path: str):
+        """加载checkpoint - 只加载分类头和LoRA权重"""
+        checkpoint = torch.load(path, map_location='cpu')
+        
+        # 加载分类头
+        if 'classifier_state_dict' in checkpoint:
+            self.classifier.load_state_dict(checkpoint['classifier_state_dict'])
+            print(f"✅ 已加载分类头，参数数量: {len(checkpoint['classifier_state_dict'])}")
+        
+        # 加载LoRA权重
+        if 'lora_state_dict' in checkpoint and hasattr(self, 'model'):
+            lora_state = checkpoint['lora_state_dict']
+            model_dict = dict(self.model.named_parameters())
+            loaded_count = 0
+            for name, param_data in lora_state.items():
+                if name in model_dict:
+                    model_dict[name].data.copy_(param_data.to(model_dict[name].device))
+                    loaded_count += 1
+            print(f"✅ 已加载LoRA权重，参数数量: {loaded_count}/{len(lora_state)}")
+        
+        print(f"✅ Checkpoint加载完成: {path}")
