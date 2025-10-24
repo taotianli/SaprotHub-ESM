@@ -130,7 +130,7 @@ class ESM3LoRAWrapper(nn.Module):
                 if isinstance(module, nn.Linear):
                     for target in self.target_modules:
                         if target in full_name:
-                            print(f"   Adding LoRA to: {full_name}")
+                            # print(f"   Adding LoRA to: {full_name}")
                             lora_layer = LoRALinear(
                                 module,
                                 r=self.r,

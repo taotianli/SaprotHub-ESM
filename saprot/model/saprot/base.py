@@ -572,12 +572,12 @@ class SaprotBaseModel(AbstractModel):
             plt.show()
             
             # Print accuracy values for debugging
-            print("\n" + "=" * 100)
-            print("Validation metrics at each step:")
-            print("=" * 100)
-            for metric in metrics_to_plot.keys():
-                if metric in self.valid_metrics_list:
-                    print(f"\n{METRIC_MAP[metric.lower()]}:")
-                    for step, val in zip(self.valid_metrics_list['step'], self.valid_metrics_list[metric]):
-                        print(f"  Step {step}: {val:.6f}")
-            print("=" * 100)
+            # print("\n" + "=" * 100)
+            # print("Validation metrics at each step:")
+            # print("=" * 100)
+            # for metric in metrics_to_plot.keys():
+            #     if metric in self.valid_metrics_list:
+            #         print(f"\n{METRIC_MAP[metric.lower()]}:")
+            #         for step, val in zip(self.valid_metrics_list['step'], self.valid_metrics_list[metric]):
+            #             print(f"  Step {step}: {val:.6f}")
+            # print("=" * 100)

@@ -189,7 +189,7 @@ class PurePyTorchTrainer:
         accumulation_counter = 0
         
         # 创建进度条
-        pbar = tqdm(dataloader, desc="训练中")
+        pbar = tqdm(dataloader, desc="Training")
         
         for batch_idx, batch in enumerate(pbar):
             # 将数据移到设备
@@ -252,7 +252,7 @@ class PurePyTorchTrainer:
         num_batches = 0
         
         with torch.no_grad():
-            pbar = tqdm(dataloader, desc="验证中")
+            pbar = tqdm(dataloader, desc="Validation")
             for batch in pbar:
                 # 将数据移到设备
                 batch = self._move_batch_to_device(batch)
@@ -289,7 +289,7 @@ class PurePyTorchTrainer:
         num_batches = 0
         
         with torch.no_grad():
-            pbar = tqdm(dataloader, desc="测试中")
+            pbar = tqdm(dataloader, desc="Testing")
             for batch in pbar:
                 # 将数据移到设备
                 batch = self._move_batch_to_device(batch)
