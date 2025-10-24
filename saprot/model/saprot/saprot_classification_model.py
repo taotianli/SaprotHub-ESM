@@ -676,7 +676,7 @@ class SaprotClassificationModel(SaprotBaseModel):
                 else:
                     print(f"❌ 在模型权重中未找到分类头参数")
             else:
-                print(f"❌ 不识别的权重文件格式")
+                print(f"Unrecognized weight file format")
                 
         except Exception as e:
             print(f"❌ 加载分类头权重失败: {str(e)}")

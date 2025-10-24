@@ -48,7 +48,7 @@ class AbstractModel(torch.nn.Module):
                 "class": "ConstantLRScheduler",
                 "init_lr": 0,
             }
-            print("No lr_scheduler_kwargs provided. The default learning rate is 0.")
+            # print("No lr_scheduler_kwargs provided. The default learning rate is 0.")
 
         else:
             self.lr_scheduler_kwargs = lr_scheduler_kwargs
@@ -60,7 +60,7 @@ class AbstractModel(torch.nn.Module):
                 "betas": (0.9, 0.98),
                 "weight_decay": 0.01,
             }
-            print("No optimizer_kwargs provided. The default optimizer is AdamW.")
+            # print("No optimizer_kwargs provided. The default optimizer is AdamW.")
         else:
             self.optimizer_kwargs = optimizer_kwargs
         self.init_optimizers()

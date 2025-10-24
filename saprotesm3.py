@@ -1850,7 +1850,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         model_path = ADAPTER_HOME / model_arg
         weight_files = list(model_path.glob("*.pt"))
         if weight_files:
-            print(f"🔄 加载ESM3分类头权重: {weight_files[0].name}")
+            print(f"Loading ESM3 classification head weights: {weight_files[0].name}")
             from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
             model = SaprotClassificationModel(num_labels=num_labels, config_path="esm3-open")
             model.load_checkpoint(str(weight_files[0]))
@@ -1860,7 +1860,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         else:
             raise RuntimeError("未找到分类头权重文件，请检查模型目录！")
         # 开始预测
-        print(f"🎯 开始使用ESM3模型进行{original_task_type}预测...")
+        print(f"Starting {original_task_type} prediction using ESM3 model...")
         logits = []
         pred_labels = []
         if task_type in ["pair_classification", "pair_regression"]:

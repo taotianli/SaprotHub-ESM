@@ -775,7 +775,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 else:
                     print(f"❌ 在模型权重中未找到回归头参数")
             else:
-                print(f"❌ 不识别的权重文件格式")
+                print(f"Unrecognized weight file format")
                 
         except Exception as e:
             print(f"❌ 加载回归头权重失败: {str(e)}")
