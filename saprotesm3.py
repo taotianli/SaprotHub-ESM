@@ -1850,34 +1850,62 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         model_path = ADAPTER_HOME / model_arg
         weight_files = list(model_path.glob("*.pt"))
         if weight_files:
-            print(f"Loading ESM3 classification head weights: {weight_files[0].name}")
-            from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
-            model = SaprotClassificationModel(num_labels=num_labels, config_path="esm3-open")
+            print(f"Loading ESM3 model head weights: {weight_files[0].name}")
+            
+            # Select the appropriate model based on task type
+            if task_type == "classification":
+                from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
+                model = SaprotClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                print(f"Using SaprotClassificationModel")
+            elif task_type == "regression":
+                from saprot.model.saprot.saprot_regression_model import SaprotRegressionModel
+                model = SaprotRegressionModel(config_path="esm3-open")
+                print(f"Using SaprotRegressionModel")
+            elif task_type == "token_classification":
+                from saprot.model.saprot.saprot_token_classification_model import SaprotTokenClassificationModel
+                model = SaprotTokenClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                print(f"Using SaprotTokenClassificationModel")
+            elif task_type == "pair_classification":
+                from saprot.model.saprot.saprot_pair_classification_model import SaprotPairClassificationModel
+                model = SaprotPairClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                print(f"Using SaprotPairClassificationModel")
+            elif task_type == "pair_regression":
+                from saprot.model.saprot.saprot_pair_regression_model import SaprotPairRegressionModel
+                model = SaprotPairRegressionModel(config_path="esm3-open")
+                print(f"Using SaprotPairRegressionModel")
+            else:
+                raise ValueError(f"Unknown task type: {task_type}")
+            
             model.load_checkpoint(str(weight_files[0]))
             model.to(device)
-            model = model.float()  # 保证模型为float32
+            model = model.float()  # Ensure model is float32
             model.eval()
         else:
-            raise RuntimeError("未找到分类头权重文件，请检查模型目录！")
-        # 开始预测
+            raise RuntimeError("Model weight file not found, please check the model directory!")
+        # Start prediction
         print(f"Starting {original_task_type} prediction using ESM3 model...")
         logits = []
         pred_labels = []
         if task_type in ["pair_classification", "pair_regression"]:
-            print("⚠️ 暂不支持序列对预测任务")
+            print("Warning: Pair prediction tasks are not yet supported in this interface")
             return None, None
         else:
-            for sa_seq in tqdm(rows, desc="预测中"):
+            for sa_seq in tqdm(rows, desc="Predicting"):
                 with torch.no_grad():
-                    # 如果输入是tensor，确保为float32
+                    # Ensure input is float32 if it's a tensor
                     if isinstance(sa_seq, torch.Tensor):
                         sa_seq = sa_seq.float()
                     pred = model(sa_seq, device=device)
                 if "regression" in task_type:
-                    pred_labels.append(pred.item())
+                    # Handle regression output: pred may have shape [1,1] or [batch_size,1]
+                    if isinstance(pred, torch.Tensor):
+                        pred_value = pred.squeeze().cpu().item()
+                    else:
+                        pred_value = float(pred)
+                    pred_labels.append(pred_value)
                 else:
                     if isinstance(pred, torch.Tensor):
-                        # 修复预测标签格式问题
+                        # Process classification predictions
                         softmax_probs = pred.softmax(dim=-1).cpu().numpy()
                         logits.append(softmax_probs.tolist())
                         pred_labels.append(pred.argmax(dim=-1).cpu().numpy().item())
@@ -1885,7 +1913,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                         logits.append([1.0])
                         pred_labels.append(0)
 
-        # 保存预测结果到文件
+        # Save prediction results to file
         import tempfile
         temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
         temp_file.write("protein,prediction\n")
@@ -1894,7 +1922,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
             temp_file.write(f"{protein_name},{label}\n")
         temp_file.close()
 
-        # 对于单个预测，返回第一个预测标签；对于多个预测，返回预测标签列表
+        # Return single prediction or list of predictions
         if len(pred_labels) == 1:
             return pred_labels[0], temp_file.name
         else:
