@@ -434,16 +434,16 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
     
     def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True):
-        """保存checkpoint - 只保存分类头和LoRA权重"""
+        """Save checkpoint - only save classifier head and LoRA weights"""
         checkpoint = {
             'classifier_state_dict': self.classifier.state_dict(),
         }
         
-        # 添加save_info（如果提供）
+        # Add save_info if provided
         if save_info is not None:
             checkpoint['save_info'] = save_info
         
-        # 保存LoRA权重（如果存在）
+        # Save LoRA weights if they exist
         if hasattr(self, 'model') and self.model is not None:
             lora_state = {}
             for name, param in self.model.named_parameters():
@@ -453,21 +453,32 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 checkpoint['lora_state_dict'] = lora_state
         
         torch.save(checkpoint, save_path)
-        print(f"✅ 已保存checkpoint到: {save_path}")
-        print(f"   - 分类头参数: {len(checkpoint['classifier_state_dict'])} 个")
+        print(f"Checkpoint saved to: {save_path}")
+        print(f"   - Classifier parameters: {len(checkpoint['classifier_state_dict'])}")
         if 'lora_state_dict' in checkpoint:
-            print(f"   - LoRA参数: {len(checkpoint['lora_state_dict'])} 个")
+            print(f"   - LoRA parameters: {len(checkpoint['lora_state_dict'])}")
     
     def load_checkpoint(self, path: str):
-        """加载checkpoint - 只加载分类头和LoRA权重"""
+        """Load checkpoint - only load classifier head and LoRA weights"""
+        import os
+        
+        # Ensure path has .pt extension
+        if not path.endswith('.pt'):
+            path = path + '.pt'
+        
+        # Check if path exists
+        if not os.path.exists(path):
+            print(f"Warning: Checkpoint file not found: {path}")
+            return
+        
         checkpoint = torch.load(path, map_location='cpu')
         
-        # 加载分类头
+        # Load classifier head
         if 'classifier_state_dict' in checkpoint:
             self.classifier.load_state_dict(checkpoint['classifier_state_dict'])
-            print(f"✅ 已加载分类头，参数数量: {len(checkpoint['classifier_state_dict'])}")
+            print(f"Loaded classifier head, parameters: {len(checkpoint['classifier_state_dict'])}")
         
-        # 加载LoRA权重
+        # Load LoRA weights
         if 'lora_state_dict' in checkpoint and hasattr(self, 'model'):
             lora_state = checkpoint['lora_state_dict']
             model_dict = dict(self.model.named_parameters())
@@ -476,6 +487,6 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 if name in model_dict:
                     model_dict[name].data.copy_(param_data.to(model_dict[name].device))
                     loaded_count += 1
-            print(f"✅ 已加载LoRA权重，参数数量: {loaded_count}/{len(lora_state)}")
+            print(f"Loaded LoRA weights, parameters: {loaded_count}/{len(lora_state)}")
         
-        print(f"✅ Checkpoint加载完成: {path}")
+        print(f"Checkpoint loaded successfully: {path}")
