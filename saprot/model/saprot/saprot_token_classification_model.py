@@ -285,15 +285,17 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         label = label[mask]
         logits = logits[mask]
         
+        # Get predictions from logits
+        preds = logits.argmax(dim=-1)
+        
         # Add the outputs to the list if not in training mode
         if stage != "train":
-            preds = logits.argmax(dim=-1)
             self.preds.append(preds)
             self.targets.append(label)
         
-        # Update metrics
+        # Update metrics with predictions (not logits)
         for metric in self.metrics[stage].values():
-            metric.update(logits.detach(), label)
+            metric.update(preds.detach(), label)
         
         if stage == "train":
             log_dict = self.get_log_dict("train")
