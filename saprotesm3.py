@@ -2303,7 +2303,7 @@ def choose_training_task():
   dataset_hint = HTML(markdown.markdown("### Dataset setting:"))
   data_type_hint = HTML(markdown.markdown("**Your training data type:**"))
   data_type = ipywidgets.RadioButtons(
-      options=['protein sequence', 'protein structure'],
+      options=['protein sequence'],  # 'protein structure' 暂时注释掉
       disabled=False,
       style={'description_width': 'initial'},
       )
@@ -3163,7 +3163,7 @@ def choose_training_task():
 
         with open(adapter_config_path, 'w') as f:
             json.dump(adapter_config, f, indent=2)
-        print(f"Created adapter_config.json for ESM3 model at {adapter_config_path}")
+        # print(f"Created adapter_config.json for ESM3 model at {adapter_config_path}")
 
     ####################################################################
     #            Modify README              #

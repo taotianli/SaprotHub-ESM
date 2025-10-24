@@ -483,25 +483,25 @@ class SaprotBaseModel(AbstractModel):
             "test_pearson": "Pearson correlation",
         }
         
-        print('=' * 100)
-        print('Evaluation results on the test set:')
-        flag = False
-        for key, value in log_dict.items():
-            if value is not None:
-                if isinstance(value, torch.Tensor):
-                    print_value = value.item()
-                else:
-                    print_value = float(value)
-            else:
-                print_value = torch.nan
-                flag = True
-            
-            print(f"{METRIC_MAP[key.lower()]}: {print_value}")
-        
-        if "classification" not in self.task and flag:
-            print("\033[31m\nWarning: To calculate some metrics (R^2, Spearman correlation, Pearson correlation), "
-                  "a minimum of two examples from the validation/test set is required.\033[0m")
-        print('=' * 100)
+        # print('=' * 100)
+        # print('Evaluation results on the test set:')
+        # flag = False
+        # for key, value in log_dict.items():
+        #     if value is not None:
+        #         if isinstance(value, torch.Tensor):
+        #             print_value = value.item()
+        #         else:
+        #             print_value = float(value)
+        #     else:
+        #         print_value = torch.nan
+        #         flag = True
+        #     
+        #     print(f"{METRIC_MAP[key.lower()]}: {print_value}")
+        # 
+        # if "classification" not in self.task and flag:
+        #     print("\033[31m\nWarning: To calculate some metrics (R^2, Spearman correlation, Pearson correlation), "
+        #           "a minimum of two examples from the validation/test set is required.\033[0m")
+        # print('=' * 100)
     
     def plot_valid_metrics_curve(self, log_dict):
         if not hasattr(self, 'grid'):

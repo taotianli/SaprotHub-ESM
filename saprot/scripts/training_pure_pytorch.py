@@ -101,7 +101,7 @@ class PurePyTorchTrainer:
             # 训练阶段
             model.train()
             train_loss = self._train_epoch(model, train_dataloader, optimizer, lr_scheduler)
-            print(f"训练损失: {train_loss:.4f}")
+            # print(f"训练损失: {train_loss:.4f}")
             
             # 验证阶段
             if val_dataloader is not None:
@@ -110,7 +110,7 @@ class PurePyTorchTrainer:
                 if hasattr(model, 'step'):
                     model.step = self.global_step
                 val_metrics = self._validate_epoch(model, val_dataloader)
-                print(f"验证指标: {val_metrics}")
+                # print(f"验证指标: {val_metrics}")
                 
                 # 检查是否保存模型
                 if self.enable_checkpointing and hasattr(model, 'check_save_condition'):
@@ -122,7 +122,7 @@ class PurePyTorchTrainer:
             if hasattr(model, 'on_train_epoch_end'):
                 model.on_train_epoch_end()
         
-        print("\n训练完成!")
+        # print("\n训练完成!")
         
         # 确保至少保存最后一个epoch的模型（即使验证指标不是最佳的）
         if self.enable_checkpointing and model.save_path is not None:
@@ -169,7 +169,7 @@ class PurePyTorchTrainer:
         
         # 测试循环
         test_metrics = self._test_epoch(model, test_dataloader)
-        print(f"测试指标: {test_metrics}")
+        # print(f"测试指标: {test_metrics}")
         
         return test_metrics
     
@@ -368,7 +368,7 @@ def finetune_pure_pytorch(config):
     
     # 加载最佳模型并测试
     if model.save_path is not None:
-        print(f"\n从 {model.save_path} 加载最佳模型进行测试...")
+        # print(f"\n从 {model.save_path} 加载最佳模型进行测试...")
         model.load_checkpoint(model.save_path)
         trainer.test(model=model, datamodule=data_module)
 
