@@ -1,15 +1,15 @@
 import os
 
-# 禁用transformers的accelerate集成，避免numpy 2.x兼容性问题
+# Disable transformers accelerate integration to avoid numpy 2.x compatibility issues
 os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = '1'
 os.environ['DISABLE_TELEMETRY'] = '1'
 
 import torch
 import torch.distributed as dist
 
-# 自定义Accuracy实现，避免导入torchmetrics（会触发accelerate/numpy兼容性问题）
+# Custom Accuracy implementation to avoid torchmetrics (which triggers accelerate/numpy compatibility issues)
 class SimpleAccuracy:
-    """简单的准确率计算，替代torchmetrics.Accuracy"""
+    """Simple accuracy calculation, replaces torchmetrics.Accuracy"""
     def __init__(self, task="multiclass", num_classes=2):
         self.task = task
         self.num_classes = num_classes
@@ -17,25 +17,25 @@ class SimpleAccuracy:
         self.total = 0
     
     def update(self, preds, target):
-        """更新统计"""
+        """Update statistics"""
         self.correct += (preds == target).sum().item()
         self.total += target.numel()
     
     def compute(self):
-        """计算准确率"""
+        """Compute accuracy"""
         if self.total == 0:
             return 0.0
         return self.correct / self.total
     
     def reset(self):
-        """重置统计"""
+        """Reset statistics"""
         self.correct = 0
         self.total = 0
 
 from torch.nn.functional import cross_entropy
 from ..model_interface import register_model
 from .base import SaprotBaseModel
-# 导入学习率调度器
+# Import learning rate schedulers
 from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, Esm2LRScheduler
 
 
@@ -178,10 +178,10 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                                         device=device, dtype=model_dtype)
                                     features = torch.cat([features, padding])
                                 
-                                # 存储嵌入表示
+                                # Store embedding representation
                                 token_embeddings[i] = features
                 except Exception as e:
-                    print(f"处理序列时出错: {e}")
+                    print(f"Error processing sequence: {e}")
                 
                 # 使用分类头处理整个批次的嵌入
                 # 确保token_embeddings需要梯度且数据类型正确
@@ -239,7 +239,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 # 存储嵌入表示
                                 sequence_embeddings[i] = features
                 except Exception as e:
-                    print(f"处理序列时出错: {e}")
+                    print(f"Error processing sequence: {e}")
                 
                 # 使用分类头处理整个批次的嵌入
                 # 确保sequence_embeddings需要梯度且数据类型正确
@@ -248,20 +248,12 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 logits = self.classifier(sequence_embeddings)
                     
             else:
-                # 使用原有的ESM或BERT模型作为后备
-                if hasattr(self.model, "esm"):
-                    backbone = self.model.esm
-                elif hasattr(self.model, "bert"):
-                    backbone = self.model.bert
-                else:
-                    raise ValueError("模型既没有ESM也没有BERT backbone")
-                
-                outputs = backbone(**inputs)
-                # 确保输出需要梯度且数据类型正确
-                hidden_states = outputs[0].to(device=device, dtype=model_dtype)
-                if not hidden_states.requires_grad:
-                    hidden_states = hidden_states.detach().requires_grad_(True)
-                logits = self.classifier(hidden_states)
+                # No valid input format found
+                available_keys = list(inputs.keys()) if isinstance(inputs, dict) else "None"
+                raise ValueError(
+                    f"Input format not recognized. Expected one of: 'tokens', 'embeddings', 'sequences'. "
+                    f"Got input keys: {available_keys}"
+                )
         
         return logits
     
