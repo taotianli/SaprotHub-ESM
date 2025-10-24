@@ -19,207 +19,207 @@ root_dir = os.getcwd()
 from google.colab import output
 # output.enable_custom_widget_manager()
 
-try:
-  import sys
-  import subprocess
-  sys.path.append(f"{root_dir}/SaprotHub")
-  import saprot
+# try:
+#   import sys
+#   import subprocess
+#   sys.path.append(f"{root_dir}/SaprotHub")
+#   import saprot
 
-  try:
-      result = subprocess.run(
-          [sys.executable, "-m", "pip", "show", "saprot"],
-          capture_output=True,
-          text=True
-      )
+#   try:
+#       result = subprocess.run(
+#           [sys.executable, "-m", "pip", "show", "saprot"],
+#           capture_output=True,
+#           text=True
+#       )
 
-      is_fork_installed = "Tianli" in result.stdout
+#       is_fork_installed = "Tianli" in result.stdout
 
-      if not is_fork_installed:
-          print('重新安装 SeProt...')
-          os.system(f"rm -rf {root_dir}/SaprotHub")
-          # !rm -rf /content/SaprotHub/
+#       if not is_fork_installed:
+#           print('重新安装 SeProt...')
+#           os.system(f"rm -rf {root_dir}/SaprotHub")
+#           # !rm -rf /content/SaprotHub/
 
-          os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-          os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
+#           os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+#           os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
-          # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-          os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-          # !pip install -r /content/SaprotHub/requirements.txt
+#           # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+#           os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+#           # !pip install -r /content/SaprotHub/requirements.txt
 
-          os.system(f"pip install {root_dir}/SaprotHub")
-
-
-          os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-          os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
-
-          os.system("pip install jupyter_ui_poll")
-          os.system("pip uninstall -y torchao")
-          print(f"SaProt is installed successfully!")
-      else:
-          print(f"SaProt is installed successfully!")
-  except Exception as e:
-      os.system(f"rm -rf {root_dir}/SaprotHub")
-      # !rm -rf /content/SaprotHub/
-
-      os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-      os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
-
-      # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-      os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-      # !pip install -r /content/SaprotHub/requirements.txt
-
-      os.system(f"pip install {root_dir}/SaprotHub")
+#           os.system(f"pip install {root_dir}/SaprotHub")
 
 
-      os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-      os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+#           os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-      os.system("pip install jupyter_ui_poll")
-      os.system("pip uninstall -y torchao")
-      print(f"SaProt is installed successfully!")
+#           os.system("pip install jupyter_ui_poll")
+#           os.system("pip uninstall -y torchao")
+#           print(f"SaProt is installed successfully!")
+#       else:
+#           print(f"SaProt is installed successfully!")
+#   except Exception as e:
+#       os.system(f"rm -rf {root_dir}/SaprotHub")
+#       # !rm -rf /content/SaprotHub/
 
-  os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
+#       os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+#       os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
-  ################################################################################
-  ################################################################################
-  ################################## global ######################################
-  ################################################################################
-  ################################################################################
+#       # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+#       os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+#       # !pip install -r /content/SaprotHub/requirements.txt
 
-  import ipywidgets
-  import pandas as pd
-  import torch
-  import numpy as np
-  import lmdb
-  import base64
-  import copy
-  import os
-  import json
-  import zipfile
-  import yaml
-  import argparse
-  import pprint
-  import subprocess
-  import py3Dmol
-  import matplotlib.pyplot as plt
-  import shutil
-  import torch.nn.functional as F
-  import warnings
-  warnings.filterwarnings("ignore", category=FutureWarning)
+#       os.system(f"pip install {root_dir}/SaprotHub")
 
 
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+#       os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-  from loguru import logger
-  from easydict import EasyDict
-  from colorama import init, Fore, Back, Style
-  from IPython.display import clear_output
-  from huggingface_hub import snapshot_download
-  from ipywidgets import HTML
-  from IPython.display import display
-  from google.colab import widgets
-  from google.colab import files
-  from pathlib import Path
-  from tqdm import tqdm
-  from datetime import datetime
-  # from transformers import AutoTokenizer  # ESM3不需要tokenizer
-  # from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
-  # from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
-  from string import ascii_uppercase,ascii_lowercase
-  from saprot.utils.mpr import MultipleProcessRunnerSimplifier
-  from saprot.data.parse import get_chain_ids
-  # from saprot.scripts.training import my_load_model
-  from safetensors import safe_open
+#       os.system("pip install jupyter_ui_poll")
+#       os.system("pip uninstall -y torchao")
+#       print(f"SaProt is installed successfully!")
 
-  os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
-  os.system("pip install jupyter_ui_poll")
-  os.system("pip uninstall -y torchao")
+#   os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
 
-  print("SaProt is installed successfully!")
+#   ################################################################################
+#   ################################################################################
+#   ################################## global ######################################
+#   ################################################################################
+#   ################################################################################
 
-except Exception:
-  print("Installing SaProt...")
-  os.system(f"rm -rf {root_dir}/SaprotHub")
-    # !rm -rf /content/SaprotHub/
-
-  os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-  os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
-
-  # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-  os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-  # !pip install -r /content/SaprotHub/requirements.txt
-
-  os.system(f"pip install {root_dir}/SaprotHub")
+#   import ipywidgets
+#   import pandas as pd
+#   import torch
+#   import numpy as np
+#   import lmdb
+#   import base64
+#   import copy
+#   import os
+#   import json
+#   import zipfile
+#   import yaml
+#   import argparse
+#   import pprint
+#   import subprocess
+#   import py3Dmol
+#   import matplotlib.pyplot as plt
+#   import shutil
+#   import torch.nn.functional as F
+#   import warnings
+#   warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-  os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-  os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-  os.system("pip install jupyter_ui_poll")
-  os.system("pip uninstall -y torchao")
+#   from loguru import logger
+#   from easydict import EasyDict
+#   from colorama import init, Fore, Back, Style
+#   from IPython.display import clear_output
+#   from huggingface_hub import snapshot_download
+#   from ipywidgets import HTML
+#   from IPython.display import display
+#   from google.colab import widgets
+#   from google.colab import files
+#   from pathlib import Path
+#   from tqdm import tqdm
+#   from datetime import datetime
+#   # from transformers import AutoTokenizer  # ESM3不需要tokenizer
+#   # from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
+#   # from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
+#   from string import ascii_uppercase,ascii_lowercase
+#   from saprot.utils.mpr import MultipleProcessRunnerSimplifier
+#   from saprot.data.parse import get_chain_ids
+#   # from saprot.scripts.training import my_load_model
+#   from safetensors import safe_open
 
-  # !mkdir -p /content/SaprotHub/LMDB
-  # !mkdir -p /content/SaprotHub/bin
-  # !mkdir -p /content/SaprotHub/output
-  # !mkdir -p /content/SaprotHub/datasets
-  # !mkdir -p /content/SaprotHub/adapters/classification/Local
-  # !mkdir -p /content/SaprotHub/adapters/regression/Local
-  # !mkdir -p /content/SaprotHub/adapters/token_classification/Local
-  # !mkdir -p /content/SaprotHub/adapters/pair_classification/Local
-  # !mkdir -p /content/SaprotHub/adapters/pair_regression/Local
-  # !mkdir -p /content/SaprotHub/structures
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+#   os.system("pip install jupyter_ui_poll")
+#   os.system("pip uninstall -y torchao")
 
-  # !pip install gdown==v4.6.3 --force-reinstall --quiet
-  # os.system(
-  #   f"wget 'https://drive.usercontent.google.com/download?id=1B_9t3n_nlj8Y3Kpc_mMjtMdY0OPYa7Re&export=download&authuser=0' -O {root_dir}/SaprotHub/bin/foldseek"
-  # )
+#   print("SaProt is installed successfully!")
 
-  os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
-  # !chmod +x /content/SaprotHub/bin/foldseek
-  import sys
-  sys.path.append(f"{root_dir}/SaprotHub")
+# except Exception:
+#   print("Installing SaProt...")
+#   os.system(f"rm -rf {root_dir}/SaprotHub")
+#     # !rm -rf /content/SaprotHub/
 
-  # IMPORTANT!!!! Used to fix the error caused by the mismatch of the versions of third-party libraries!!
-  import matplotlib.pyplot as plt
-  fig, ax = plt.subplots(figsize=(0.01,0.01))
-  ax.spines['right'].set_visible(False)
-  ax.spines['left'].set_visible(False)
-  ax.spines['bottom'].set_visible(False)
-  plt.xticks([])
-  plt.tick_params(axis='y',colors='white')
-  plt.show()
+#   os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+#   os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
+
+#   # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+#   os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+#   # !pip install -r /content/SaprotHub/requirements.txt
+
+#   os.system(f"pip install {root_dir}/SaprotHub")
+
+
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+#   os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+
+#   os.system("pip install jupyter_ui_poll")
+#   os.system("pip uninstall -y torchao")
+
+#   # !mkdir -p /content/SaprotHub/LMDB
+#   # !mkdir -p /content/SaprotHub/bin
+#   # !mkdir -p /content/SaprotHub/output
+#   # !mkdir -p /content/SaprotHub/datasets
+#   # !mkdir -p /content/SaprotHub/adapters/classification/Local
+#   # !mkdir -p /content/SaprotHub/adapters/regression/Local
+#   # !mkdir -p /content/SaprotHub/adapters/token_classification/Local
+#   # !mkdir -p /content/SaprotHub/adapters/pair_classification/Local
+#   # !mkdir -p /content/SaprotHub/adapters/pair_regression/Local
+#   # !mkdir -p /content/SaprotHub/structures
+
+#   # !pip install gdown==v4.6.3 --force-reinstall --quiet
+#   # os.system(
+#   #   f"wget 'https://drive.usercontent.google.com/download?id=1B_9t3n_nlj8Y3Kpc_mMjtMdY0OPYa7Re&export=download&authuser=0' -O {root_dir}/SaprotHub/bin/foldseek"
+#   # )
+
+#   os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
+#   # !chmod +x /content/SaprotHub/bin/foldseek
+#   import sys
+#   sys.path.append(f"{root_dir}/SaprotHub")
+
+#   # IMPORTANT!!!! Used to fix the error caused by the mismatch of the versions of third-party libraries!!
+#   import matplotlib.pyplot as plt
+#   fig, ax = plt.subplots(figsize=(0.01,0.01))
+#   ax.spines['right'].set_visible(False)
+#   ax.spines['left'].set_visible(False)
+#   ax.spines['bottom'].set_visible(False)
+#   plt.xticks([])
+#   plt.tick_params(axis='y',colors='white')
+#   plt.show()
 
 ################################################################################
 ################################################################################
@@ -3566,8 +3566,8 @@ def protein_property_prediction():
 
   data_type_hint = HTML(markdown.markdown("### Uploaded data type:"))
   data_type_box = ipywidgets.RadioButtons(
-      options=['protein sequence', 'protein structure'],
-      value="protein structure",
+      options=['protein sequence'],  # 'protein structure' 暂时注释掉
+      value="protein sequence",
       disabled=False,
       style={'description_width': 'initial'},
       )
