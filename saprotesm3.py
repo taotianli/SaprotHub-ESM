@@ -1,4 +1,4 @@
-#@title **Step 3: Click the run-button to use ColabESM3**
+#@title **Step 2: Click the run-button to use ColabESM3**
 
 #@markdown ### Hint:
 #@markdown - It takes 3-8 minutes for the initial installation.
@@ -3321,16 +3321,16 @@ library_name: peft
         # 检查文件大小
         file_size = weight_file_path.stat().st_size
         file_size_mb = file_size / (1024 * 1024)
-        print(f"📊 权重文件大小: {file_size_mb:.2f} MB ({file_size:,} bytes)")
+        # print(f"📊 权重文件大小: {file_size_mb:.2f} MB ({file_size:,} bytes)")
 
         # 需要将权重文件复制到模型目录中，这样才能被zip包含
         import shutil
         local_weight_path = save_path / weight_file_name
-        print(f"🔄 开始复制权重文件...")
+        # print(f"🔄 开始复制权重文件...")
         shutil.copy2(weight_file_path, local_weight_path)
         files_to_zip.append(weight_file_name)
-        print(f"✅ 复制并包含ESM3权重文件: {weight_file_name}")
-        print(f"📁 复制后文件大小: {local_weight_path.stat().st_size / (1024 * 1024):.2f} MB")
+        # print(f"✅ 复制并包含ESM3权重文件: {weight_file_name}")
+        # print(f"📁 复制后文件大小: {local_weight_path.stat().st_size / (1024 * 1024):.2f} MB")
     else:
         print(f"⚠️ Warning: ESM3 weight file not found: {weight_file_path}")
         # 尝试查找其他可能的.pt文件
@@ -3358,16 +3358,16 @@ library_name: peft
     if files_to_zip:
         files_str = "' '".join(files_to_zip)
         cmd = f"cd {config.model.save_path} && zip -r {adapter_zip} '{files_str}'"
-        print(f"🔄 执行zip命令: {cmd}")
-        print(f"📦 将要打包的文件: {files_to_zip}")
+        # print(f"🔄 执行zip命令: {cmd}")
+        # print(f"📦 将要打包的文件: {files_to_zip}")
         result = os.system(cmd)
-        print(f"📦 zip命令执行结果: {result}")
+        # print(f"📦 zip命令执行结果: {result}")
 
         # 检查zip文件是否创建成功
         if adapter_zip.exists():
             zip_size = adapter_zip.stat().st_size / (1024 * 1024)
-            print(f"✅ zip文件创建成功: {adapter_zip}")
-            print(f"📊 zip文件大小: {zip_size:.2f} MB")
+            # print(f"✅ zip文件创建成功: {adapter_zip}")
+            # print(f"📊 zip文件大小: {zip_size:.2f} MB")
         else:
             print(f"❌ zip文件创建失败: {adapter_zip}")
     else:
@@ -3376,11 +3376,11 @@ library_name: peft
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "README.md" "metadata.json"
     # !cd $config.model.save_path && zip -r $adapter_zip "adapter_config.json" "adapter_model.safetensors" "adapter_model.bin" "README.md" "metadata.json"
 
-    print("🔽 Click to download the model to your local computer")
+    # print("🔽 Click to download the model to your local computer")
     if adapter_zip.exists():
-        print(f"🚀 开始自动下载: {adapter_zip}")
+        # print(f"🚀 开始自动下载: {adapter_zip}")
         file_download(adapter_zip)
-        print(f"✅ 下载命令已执行")
+        # print(f"✅ 下载命令已执行")
     else:
         print(f"❌ zip文件不存在，无法下载: {adapter_zip}")
 

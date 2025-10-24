@@ -58,7 +58,7 @@ class PurePyTorchTrainer:
         else:
             self.device = torch.device('cpu')
         
-        print(f"训练设备: {self.device}")
+        # print(f"训练设备: {self.device}")
         
         # 初始化日志记录
         self.logger = config.Trainer.get('logger', None)
@@ -72,7 +72,7 @@ class PurePyTorchTrainer:
             model: 模型实例
             datamodule: 数据模块实例
         """
-        print("开始训练...")
+        # print("开始训练...")
         
         # 将模型移到设备
         model = model.to(self.device)
@@ -152,7 +152,7 @@ class PurePyTorchTrainer:
             model: 模型实例
             datamodule: 数据模块实例
         """
-        print("开始测试...")
+        # print("开始测试...")
         
         # 将模型移到设备
         model = model.to(self.device)
