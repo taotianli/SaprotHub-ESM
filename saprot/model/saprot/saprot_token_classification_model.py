@@ -433,11 +433,15 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
     
-    def save_checkpoint(self, path: str):
+    def save_checkpoint(self, save_path: str, save_info: dict = None, save_weights_only: bool = True):
         """保存checkpoint - 只保存分类头和LoRA权重"""
         checkpoint = {
             'classifier_state_dict': self.classifier.state_dict(),
         }
+        
+        # 添加save_info（如果提供）
+        if save_info is not None:
+            checkpoint['save_info'] = save_info
         
         # 保存LoRA权重（如果存在）
         if hasattr(self, 'model') and self.model is not None:
@@ -448,8 +452,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             if lora_state:
                 checkpoint['lora_state_dict'] = lora_state
         
-        torch.save(checkpoint, path)
-        print(f"✅ 已保存checkpoint到: {path}")
+        torch.save(checkpoint, save_path)
+        print(f"✅ 已保存checkpoint到: {save_path}")
         print(f"   - 分类头参数: {len(checkpoint['classifier_state_dict'])} 个")
         if 'lora_state_dict' in checkpoint:
             print(f"   - LoRA参数: {len(checkpoint['lora_state_dict'])} 个")
