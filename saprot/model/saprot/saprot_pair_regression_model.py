@@ -462,19 +462,24 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
-        # Forward pass
-        logits = self.regression_head(stacked_features).squeeze(dim=-1)
+        # Forward pass - 不使用squeeze，保持与classification一致
+        logits = self.regression_head(stacked_features)
         
         return logits
 
     def loss_func(self, stage, logits, labels):
         fitness = labels['labels'].to(logits)
-        loss = torch.nn.functional.mse_loss(logits, fitness)
+        
+        # 确保形状匹配：flatten输出和标签
+        logits_flat = logits.flatten()
+        fitness_flat = fitness.flatten()
+        
+        loss = torch.nn.functional.mse_loss(logits_flat, fitness_flat)
 
         # Update metrics - 使用自定义的SimpleRegressionMetrics
         with torch.no_grad():
             for metric in self.metrics[stage].values():
-                metric.update(logits.detach(), fitness)
+                metric.update(logits_flat.detach(), fitness_flat)
 
         if stage == "train":
             log_dict = self.get_log_dict("train")

@@ -350,9 +350,9 @@ class SaprotRegressionModel(SaprotBaseModel):
                     x = self.model.classifier.dense(x)
                     x = torch.tanh(x)
                     x = self.model.classifier.dropout(x)
-                    logits = self.model.classifier.out_proj(x).squeeze(dim=-1)
+                    logits = self.model.classifier.out_proj(x)
                 else:
-                   logits = self.model(**model_inputs).logits.squeeze(dim=-1)
+                   logits = self.model(**model_inputs).logits
                    
                 return logits
         
@@ -366,7 +366,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                     unk_id = self.tokenizer.unk_token_id if self.tokenizer.unk_token_id is not None else 0
                     model_inputs["input_ids"] = torch.where(input_ids < vocab_size, input_ids, torch.tensor(unk_id).to(input_ids.device))
                 repr = self.model.bert(**model_inputs).last_hidden_state[:, 0]
-                logits = self.model.classifier(repr).squeeze(dim=-1)
+                logits = self.model.classifier(repr)
                 
                 return logits
         
@@ -382,20 +382,25 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
-        # Forward pass
-        logits = self.regression_head(stacked_features).squeeze(dim=-1)
+        # Forward pass - 不使用squeeze，保持与classification一致
+        logits = self.regression_head(stacked_features)
         # print(f"[回归模型调试] 回归输出形状: {logits.shape}")
         
         return logits
 
     def loss_func(self, stage, outputs, labels):
         fitness = labels['labels'].to(outputs)
-        loss = torch.nn.functional.mse_loss(outputs, fitness)
+        
+        # 确保形状匹配：flatten输出和标签
+        outputs_flat = outputs.flatten()
+        fitness_flat = fitness.flatten()
+        
+        loss = torch.nn.functional.mse_loss(outputs_flat, fitness_flat)
         
         # Update metrics - 使用自定义的SimpleRegressionMetrics
         with torch.no_grad():
             for metric in self.metrics[stage].values():
-                metric.update(outputs.detach(), fitness)
+                metric.update(outputs_flat.detach(), fitness_flat)
             
         if stage == "train":
             log_dict = self.get_log_dict("train")
