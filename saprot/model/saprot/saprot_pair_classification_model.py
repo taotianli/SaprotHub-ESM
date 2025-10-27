@@ -299,72 +299,116 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
-            # Process sequences using ESM3 in the model
-            from esm.sdk.api import ESMProtein
+            # Check if model is ESMC or ESM3
+            model_type = getattr(self, 'model_type', 'esm3')
             
             features_1 = []
             features_2 = []
             
-            for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
-                try:
-                    # 编码第一个序列
-                    protein_1 = ESMProtein(sequence=seq_1)
-                    with torch.no_grad():
-                        encoded_protein_1 = self.model.encode(protein_1)
-                    
-                    # 编码第二个序列
-                    protein_2 = ESMProtein(sequence=seq_2)
-                    with torch.no_grad():
-                        encoded_protein_2 = self.model.encode(protein_2)
-                    
-                    # 提取sequence tokens
-                    if hasattr(encoded_protein_1, 'sequence') and hasattr(encoded_protein_2, 'sequence'):
-                        seq_tokens_1 = getattr(encoded_protein_1, 'sequence')
-                        seq_tokens_2 = getattr(encoded_protein_2, 'sequence')
+            if model_type == "esmc":
+                # Process sequences using ESMC
+                from esm.sdk.api import ESMProtein, LogitsConfig
+                
+                for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
+                    try:
+                        # Encode first sequence
+                        protein_1 = ESMProtein(sequence=seq_1)
+                        with torch.no_grad():
+                            protein_tensor_1 = self.model.encode(protein_1)
+                            logits_output_1 = self.model.logits(
+                                protein_tensor_1, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
                         
-                        if torch.is_tensor(seq_tokens_1) and torch.is_tensor(seq_tokens_2):
-                            # 将tokens转换为嵌入维度
-                            seq_feature_1 = seq_tokens_1.float().unsqueeze(-1).expand(-1, hidden_size)
-                            seq_feature_2 = seq_tokens_2.float().unsqueeze(-1).expand(-1, hidden_size)
-                            
-                            # 截断或padding到固定长度
-                            if len(seq_feature_1) > self.fixed_seq_length:
-                                seq_feature_1 = seq_feature_1[:self.fixed_seq_length, :]
-                            elif len(seq_feature_1) < self.fixed_seq_length:
-                                padding_size = self.fixed_seq_length - len(seq_feature_1)
-                                padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
-                                seq_feature_1 = torch.cat([seq_feature_1, padding])
-                            
-                            if len(seq_feature_2) > self.fixed_seq_length:
-                                seq_feature_2 = seq_feature_2[:self.fixed_seq_length, :]
-                            elif len(seq_feature_2) < self.fixed_seq_length:
-                                padding_size = self.fixed_seq_length - len(seq_feature_2)
-                                padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
-                                seq_feature_2 = torch.cat([seq_feature_2, padding])
-                            
-                            # 平均池化得到序列表示
-                            seq_feature_1 = seq_feature_1.mean(dim=0)  # [hidden_size]
-                            seq_feature_2 = seq_feature_2.mean(dim=0)  # [hidden_size]
+                        # Encode second sequence
+                        protein_2 = ESMProtein(sequence=seq_2)
+                        with torch.no_grad():
+                            protein_tensor_2 = self.model.encode(protein_2)
+                            logits_output_2 = self.model.logits(
+                                protein_tensor_2, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
+                        
+                        if hasattr(logits_output_1, 'embeddings') and logits_output_1.embeddings is not None and \
+                           hasattr(logits_output_2, 'embeddings') and logits_output_2.embeddings is not None:
+                            # embeddings shape: [seq_len, hidden_dim]
+                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [hidden_size]
+                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [hidden_size]
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
                         else:
-                            # 创建零向量
                             feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                             feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                             features_1.append(feature_1)
                             features_2.append(feature_2)
-                    else:
-                        # 创建零向量
+                    except Exception as e:
                         feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                         feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
                         features_1.append(feature_1)
                         features_2.append(feature_2)
-                except Exception as e:
-                    feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
-                    feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
-                    features_1.append(feature_1)
-                    features_2.append(feature_2)
+            else:
+                # Process sequences using ESM3
+                from esm.sdk.api import ESMProtein
+                
+                for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
+                    try:
+                        # Encode first sequence
+                        protein_1 = ESMProtein(sequence=seq_1)
+                        with torch.no_grad():
+                            encoded_protein_1 = self.model.encode(protein_1)
+                        
+                        # Encode second sequence
+                        protein_2 = ESMProtein(sequence=seq_2)
+                        with torch.no_grad():
+                            encoded_protein_2 = self.model.encode(protein_2)
+                        
+                        # Extract sequence tokens
+                        if hasattr(encoded_protein_1, 'sequence') and hasattr(encoded_protein_2, 'sequence'):
+                            seq_tokens_1 = getattr(encoded_protein_1, 'sequence')
+                            seq_tokens_2 = getattr(encoded_protein_2, 'sequence')
+                            
+                            if torch.is_tensor(seq_tokens_1) and torch.is_tensor(seq_tokens_2):
+                                # Convert tokens to embedding dimension
+                                seq_feature_1 = seq_tokens_1.float().unsqueeze(-1).expand(-1, hidden_size)
+                                seq_feature_2 = seq_tokens_2.float().unsqueeze(-1).expand(-1, hidden_size)
+                                
+                                # Truncate or pad to fixed length
+                                if len(seq_feature_1) > self.fixed_seq_length:
+                                    seq_feature_1 = seq_feature_1[:self.fixed_seq_length, :]
+                                elif len(seq_feature_1) < self.fixed_seq_length:
+                                    padding_size = self.fixed_seq_length - len(seq_feature_1)
+                                    padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
+                                    seq_feature_1 = torch.cat([seq_feature_1, padding])
+                                
+                                if len(seq_feature_2) > self.fixed_seq_length:
+                                    seq_feature_2 = seq_feature_2[:self.fixed_seq_length, :]
+                                elif len(seq_feature_2) < self.fixed_seq_length:
+                                    padding_size = self.fixed_seq_length - len(seq_feature_2)
+                                    padding = torch.zeros(padding_size, hidden_size, device=device, dtype=model_dtype)
+                                    seq_feature_2 = torch.cat([seq_feature_2, padding])
+                                
+                                # Mean pooling to get sequence representation
+                                seq_feature_1 = seq_feature_1.mean(dim=0)  # [hidden_size]
+                                seq_feature_2 = seq_feature_2.mean(dim=0)  # [hidden_size]
+                                
+                                features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
+                                features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
+                            else:
+                                # Create zero vectors
+                                feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                                feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                                features_1.append(feature_1)
+                                features_2.append(feature_2)
+                        else:
+                            # Create zero vectors
+                            feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            features_1.append(feature_1)
+                            features_2.append(feature_2)
+                    except Exception as e:
+                        feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        features_1.append(feature_1)
+                        features_2.append(feature_2)
             
             if features_1 and features_2:
                 stacked_features_1 = torch.stack(features_1)  # [batch_size, hidden_size]

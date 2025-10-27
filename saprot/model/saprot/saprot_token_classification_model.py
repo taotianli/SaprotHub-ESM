@@ -198,8 +198,10 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 
             elif "sequences" in inputs:
                 sequences = inputs["sequences"]
-                # 使用ESM3模型进行编码
-                from esm.sdk.api import ESMProtein
+                
+                # Check if model is ESMC or ESM3
+                model_type = getattr(self, 'model_type', 'esm3')
+                
                 batch_size = len(sequences)
                 sequence_length = max(len(seq) for seq in sequences)
                 
@@ -207,28 +209,30 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 sequence_embeddings = torch.zeros(batch_size, sequence_length, hidden_size, 
                                                device=device, dtype=model_dtype)
                 
-                try:
-                    # 对每个序列进行处理
-                    for i, seq in enumerate(sequences):
-                        protein = ESMProtein(sequence=seq)
-                        
-                        # 使用no_grad仅用于编码，不用于分类头
-                        with torch.no_grad():
-                            encoded = self.model.encode(protein)
+                if model_type == "esmc":
+                    # Process sequences using ESMC
+                    from esm.sdk.api import ESMProtein, LogitsConfig
+                    
+                    try:
+                        # Process each sequence
+                        for i, seq in enumerate(sequences):
+                            protein = ESMProtein(sequence=seq)
                             
-                        if hasattr(encoded, 'sequence'):
-                            seq_features = getattr(encoded, 'sequence')
-                            if torch.is_tensor(seq_features):
-                                # 确保维度正确
-                                if seq_features.dim() == 2:
-                                    features = seq_features
-                                else:
-                                    features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
+                            # Use no_grad only for encoding, not for classification head
+                            with torch.no_grad():
+                                protein_tensor = self.model.encode(protein)
+                                logits_output = self.model.logits(
+                                    protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
+                                )
                                 
-                                # 确保features是正确的数据类型
+                            if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
+                                # embeddings shape: [seq_len, hidden_dim]
+                                features = logits_output.embeddings
+                                
+                                # Ensure features have correct dtype
                                 features = features.to(device=device, dtype=model_dtype)
                                 
-                                # 截断或padding到正确的长度
+                                # Truncate or pad to correct length
                                 if len(features) > sequence_length:
                                     features = features[:sequence_length]
                                 elif len(features) < sequence_length:
@@ -236,10 +240,47 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                                         device=device, dtype=model_dtype)
                                     features = torch.cat([features, padding])
                                 
-                                # 存储嵌入表示
+                                # Store embedding representation
                                 sequence_embeddings[i] = features
-                except Exception as e:
-                    print(f"Error processing sequence: {e}")
+                    except Exception as e:
+                        print(f"Error processing ESMC sequence: {e}")
+                else:
+                    # Process sequences using ESM3
+                    from esm.sdk.api import ESMProtein
+                    
+                    try:
+                        # Process each sequence
+                        for i, seq in enumerate(sequences):
+                            protein = ESMProtein(sequence=seq)
+                            
+                            # Use no_grad only for encoding, not for classification head
+                            with torch.no_grad():
+                                encoded = self.model.encode(protein)
+                                
+                            if hasattr(encoded, 'sequence'):
+                                seq_features = getattr(encoded, 'sequence')
+                                if torch.is_tensor(seq_features):
+                                    # Ensure correct dimensions
+                                    if seq_features.dim() == 2:
+                                        features = seq_features
+                                    else:
+                                        features = seq_features.unsqueeze(-1).expand(-1, hidden_size)
+                                    
+                                    # Ensure features have correct dtype
+                                    features = features.to(device=device, dtype=model_dtype)
+                                    
+                                    # Truncate or pad to correct length
+                                    if len(features) > sequence_length:
+                                        features = features[:sequence_length]
+                                    elif len(features) < sequence_length:
+                                        padding = torch.zeros(sequence_length - len(features), hidden_size, 
+                                                            device=device, dtype=model_dtype)
+                                        features = torch.cat([features, padding])
+                                    
+                                    # Store embedding representation
+                                    sequence_embeddings[i] = features
+                    except Exception as e:
+                        print(f"Error processing ESM3 sequence: {e}")
                 
                 # 使用分类头处理整个批次的嵌入
                 # 确保sequence_embeddings需要梯度且数据类型正确

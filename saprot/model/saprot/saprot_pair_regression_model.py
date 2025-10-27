@@ -361,13 +361,57 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
-            # Process sequences using ESM3 in the model
-            from esm.sdk.api import ESMProtein
+            # Check if model is ESMC or ESM3
+            model_type = getattr(self, 'model_type', 'esm3')
             
             features_1 = []
             features_2 = []
             
-            for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
+            if model_type == "esmc":
+                # Process sequences using ESMC
+                from esm.sdk.api import ESMProtein, LogitsConfig
+                
+                for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
+                    try:
+                        # Encode first sequence
+                        protein_1 = ESMProtein(sequence=seq_1)
+                        with torch.no_grad():
+                            protein_tensor_1 = self.model.encode(protein_1)
+                            logits_output_1 = self.model.logits(
+                                protein_tensor_1, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
+                        
+                        # Encode second sequence
+                        protein_2 = ESMProtein(sequence=seq_2)
+                        with torch.no_grad():
+                            protein_tensor_2 = self.model.encode(protein_2)
+                            logits_output_2 = self.model.logits(
+                                protein_tensor_2, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
+                        
+                        if hasattr(logits_output_1, 'embeddings') and logits_output_1.embeddings is not None and \
+                           hasattr(logits_output_2, 'embeddings') and logits_output_2.embeddings is not None:
+                            # embeddings shape: [seq_len, hidden_dim]
+                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [hidden_size]
+                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [hidden_size]
+                            
+                            features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
+                            features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
+                        else:
+                            feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            features_1.append(feature_1)
+                            features_2.append(feature_2)
+                    except Exception as e:
+                        feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        features_1.append(feature_1)
+                        features_2.append(feature_2)
+            else:
+                # Process sequences using ESM3
+                from esm.sdk.api import ESMProtein
+                
+                for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
                 try:
                     # 编码第一个序列
                     protein_1 = ESMProtein(sequence=seq_1)

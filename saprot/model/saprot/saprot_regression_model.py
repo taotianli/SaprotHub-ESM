@@ -289,47 +289,91 @@ class SaprotRegressionModel(SaprotBaseModel):
             stacked_features = self._pad_or_truncate_features(embeddings, self.fixed_seq_length)
         
         elif "sequences" in inputs:
-            # print(f"[回归模型调试] 处理原始序列，数量: {len(inputs['sequences'])}")
+            # print(f"[Regression model debug] Processing raw sequences, count: {len(inputs['sequences'])}")
             sequences = inputs["sequences"]
             
-            # Process sequences using ESM3 in the model
-            from esm.sdk.api import ESMProtein
+            # Check if model is ESMC or ESM3
+            model_type = getattr(self, 'model_type', 'esm3')
             
-            features = []
-            for i, seq in enumerate(sequences):
-                try:
-                    protein = ESMProtein(sequence=seq)
-                    with torch.no_grad():
-                        encoded_protein = self.model.encode(protein)
-                    
-                    # Extract sequence tokens
-                    if hasattr(encoded_protein, 'sequence'):
-                        seq_tokens = getattr(encoded_protein, 'sequence')
-                        if torch.is_tensor(seq_tokens):
-                            # 直接使用tokens作为特征
-                            seq_feature = seq_tokens.float()
-                            # 截断或padding到固定长度
-                            if len(seq_feature) > self.fixed_seq_length:
-                                seq_feature = seq_feature[:self.fixed_seq_length]
-                            elif len(seq_feature) < self.fixed_seq_length:
-                                padding_size = self.fixed_seq_length - len(seq_feature)
-                                padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
-                                seq_feature = torch.cat([seq_feature, padding])
-                            
-                            features.append(seq_feature.to(device=device, dtype=model_dtype))
-                            # print(f"[回归模型调试] 序列 {i} 编码完成，固定长度: {seq_feature.shape}")
-                        else:
-                            # print(f"[回归模型调试] 序列 {i} 编码失败，使用零向量")
-                            feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                            features.append(feature)
-                    else:
-                        # print(f"[回归模型调试] 序列 {i} 编码失败，使用零向量")
+            if model_type == "esmc":
+                # Process sequences using ESMC
+                from esm.sdk.api import ESMProtein, LogitsConfig
+                
+                features = []
+                for i, seq in enumerate(sequences):
+                    try:
+                        protein = ESMProtein(sequence=seq)
+                        with torch.no_grad():
+                            # Encode protein
+                            protein_tensor = self.model.encode(protein)
+                            # Get embeddings from logits
+                            logits_output = self.model.logits(
+                                protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
+                            # Use embeddings from ESMC
+                            if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
+                                # embeddings shape: [seq_len, hidden_dim]
+                                seq_embeddings = logits_output.embeddings
+                                # Mean pool over hidden dimension to get [seq_len]
+                                seq_feature = seq_embeddings.mean(dim=-1).float()
+                                
+                                # Truncate or pad to fixed length
+                                if len(seq_feature) > self.fixed_seq_length:
+                                    seq_feature = seq_feature[:self.fixed_seq_length]
+                                elif len(seq_feature) < self.fixed_seq_length:
+                                    padding_size = self.fixed_seq_length - len(seq_feature)
+                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                    seq_feature = torch.cat([seq_feature, padding])
+                                
+                                features.append(seq_feature.to(device=device, dtype=model_dtype))
+                                # print(f"[Regression model debug] Sequence {i} ESMC encoding completed, fixed length: {seq_feature.shape}")
+                            else:
+                                # print(f"[Regression model debug] Sequence {i} ESMC encoding failed, using zero vector")
+                                feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                                features.append(feature)
+                    except Exception as e:
+                        # print(f"[Regression model debug] Sequence {i} ESMC encoding error: {str(e)}")
                         feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                         features.append(feature)
-                except Exception as e:
-                    # print(f"[回归模型调试] 序列 {i} 编码出错: {str(e)}")
-                    feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                    features.append(feature)
+            else:
+                # Process sequences using ESM3
+                from esm.sdk.api import ESMProtein
+                
+                features = []
+                for i, seq in enumerate(sequences):
+                    try:
+                        protein = ESMProtein(sequence=seq)
+                        with torch.no_grad():
+                            encoded_protein = self.model.encode(protein)
+                        
+                        # Extract sequence tokens
+                        if hasattr(encoded_protein, 'sequence'):
+                            seq_tokens = getattr(encoded_protein, 'sequence')
+                            if torch.is_tensor(seq_tokens):
+                                # Directly use tokens as features
+                                seq_feature = seq_tokens.float()
+                                # Truncate or pad to fixed length
+                                if len(seq_feature) > self.fixed_seq_length:
+                                    seq_feature = seq_feature[:self.fixed_seq_length]
+                                elif len(seq_feature) < self.fixed_seq_length:
+                                    padding_size = self.fixed_seq_length - len(seq_feature)
+                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                    seq_feature = torch.cat([seq_feature, padding])
+                                
+                                features.append(seq_feature.to(device=device, dtype=model_dtype))
+                                # print(f"[Regression model debug] Sequence {i} encoding completed, fixed length: {seq_feature.shape}")
+                            else:
+                                # print(f"[Regression model debug] Sequence {i} encoding failed, using zero vector")
+                                feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                                features.append(feature)
+                        else:
+                            # print(f"[Regression model debug] Sequence {i} encoding failed, using zero vector")
+                            feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                            features.append(feature)
+                    except Exception as e:
+                        # print(f"[Regression model debug] Sequence {i} encoding error: {str(e)}")
+                        feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
+                        features.append(feature)
             
             if features:
                 stacked_features = torch.stack(features)
