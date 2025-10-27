@@ -2328,7 +2328,7 @@ def choose_training_task():
 
   model_hint = HTML(markdown.markdown("### Model setting:"))
   model_type = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', 'ESMC (Seq-only)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', 'Official ESMC (Seq-only)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -2805,7 +2805,7 @@ def choose_training_task():
 
     elif base_model == "Official ESM3 (1.4B)":
       base_model = "esm3-open"  # ESM3不需要从Hugging Face下载
-    elif base_model == "ESMC (Seq-only)":
+    elif base_model == "Official ESMC (Seq-only)":
       base_model = "esmc_300m"  # ESMC模型标识
 
     # model size and model name
