@@ -287,22 +287,36 @@ class SaprotBaseModel(AbstractModel):
         #     for param in self.model.esm.parameters():
         #         param.requires_grad = False
         
-        # Initialize ESM3 model for compatibility
-        from esm.models.esm3 import ESM3
-
-        # 从config_path确定ESM3模型名称
-        if self.config_path and self.config_path != "esm3-open":
-            # 如果提供了具体的config_path，使用它
-            esm3_model_name = self.config_path
-            # print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
+        # Initialize ESM3 or ESMC model based on config_path
+        # 判断是使用ESM3还是ESMC
+        if self.config_path and "esmc" in self.config_path.lower():
+            # 使用ESMC模型
+            from esm.models.esmc import ESMC
+            
+            esmc_model_name = self.config_path if self.config_path else "esmc_300m"
+            # print(f"🔧 从指定路径加载ESMC模型: {esmc_model_name}")
+            # print(f"🚀 开始加载ESMC模型...")
+            self.model = ESMC.from_pretrained(esmc_model_name)
+            # print(f"✅ ESMC模型加载完成: {esmc_model_name}")
+            self.model_type = "esmc"
         else:
-            # 默认使用esm3-open
-            esm3_model_name = "esm3-open"
-            # print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
+            # 使用ESM3模型
+            from esm.models.esm3 import ESM3
 
-        # print(f"🚀 开始加载ESM3模型...")
-        self.model = ESM3.from_pretrained(esm3_model_name)
-        # print(f"✅ ESM3模型加载完成: {esm3_model_name}")
+            # 从config_path确定ESM3模型名称
+            if self.config_path and self.config_path != "esm3-open":
+                # 如果提供了具体的config_path，使用它
+                esm3_model_name = self.config_path
+                # print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
+            else:
+                # 默认使用esm3-open
+                esm3_model_name = "esm3-open"
+                # print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
+
+            # print(f"🚀 开始加载ESM3模型...")
+            self.model = ESM3.from_pretrained(esm3_model_name)
+            # print(f"✅ ESM3模型加载完成: {esm3_model_name}")
+            self.model_type = "esm3"
 
         # 打印模型信息
         # if hasattr(self.model, 'config'):

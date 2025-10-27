@@ -1850,28 +1850,49 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         model_path = ADAPTER_HOME / model_arg
         weight_files = list(model_path.glob("*.pt"))
         if weight_files:
-            print(f"Loading ESM3 model head weights: {weight_files[0].name}")
+            print(f"Loading model head weights: {weight_files[0].name}")
+            
+            # 检查模型是否是ESMC
+            # 从weight文件或metadata中判断模型类型
+            config_path = "esm3-open"  # 默认使用ESM3
+            try:
+                import torch as torch_load
+                checkpoint = torch_load.load(str(weight_files[0]), map_location='cpu')
+                # 尝试从checkpoint中获取base model信息
+                if 'base_model' in checkpoint:
+                    if 'esmc' in checkpoint['base_model'].lower():
+                        config_path = "esmc_300m"
+                elif 'config_path' in checkpoint:
+                    config_path = checkpoint['config_path']
+            except:
+                pass
+            
+            # 如果模型名称包含ESMC，也使用ESMC
+            if 'esmc' in str(model_path).lower():
+                config_path = "esmc_300m"
+            
+            print(f"Using base model: {config_path}")
             
             # Select the appropriate model based on task type
             if task_type == "classification":
                 from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
-                model = SaprotClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path)
                 print(f"Using SaprotClassificationModel")
             elif task_type == "regression":
                 from saprot.model.saprot.saprot_regression_model import SaprotRegressionModel
-                model = SaprotRegressionModel(config_path="esm3-open")
+                model = SaprotRegressionModel(config_path=config_path)
                 print(f"Using SaprotRegressionModel")
             elif task_type == "token_classification":
                 from saprot.model.saprot.saprot_token_classification_model import SaprotTokenClassificationModel
-                model = SaprotTokenClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path)
                 print(f"Using SaprotTokenClassificationModel")
             elif task_type == "pair_classification":
                 from saprot.model.saprot.saprot_pair_classification_model import SaprotPairClassificationModel
-                model = SaprotPairClassificationModel(num_labels=num_labels, config_path="esm3-open")
+                model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path)
                 print(f"Using SaprotPairClassificationModel")
             elif task_type == "pair_regression":
                 from saprot.model.saprot.saprot_pair_regression_model import SaprotPairRegressionModel
-                model = SaprotPairRegressionModel(config_path="esm3-open")
+                model = SaprotPairRegressionModel(config_path=config_path)
                 print(f"Using SaprotPairRegressionModel")
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
@@ -2307,7 +2328,7 @@ def choose_training_task():
 
   model_hint = HTML(markdown.markdown("### Model setting:"))
   model_type = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', 'ESMC (Seq-only)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -2784,11 +2805,16 @@ def choose_training_task():
 
     elif base_model == "Official ESM3 (1.4B)":
       base_model = "esm3-open"  # ESM3不需要从Hugging Face下载
+    elif base_model == "ESMC (Seq-only)":
+      base_model = "esmc_300m"  # ESMC模型标识
 
     # model size and model name
     if base_model == "esm3-open":
       model_size = "1.4B"
       model_name = f"Model-{task_name_value}-{model_size}"
+    elif base_model == "esmc_300m":
+      model_size = "300M"
+      model_name = f"Model-{task_name_value}-{model_size}-ESMC"
 
     config.setting.run_mode = "train"
     config.setting.seed = seed
