@@ -79,13 +79,23 @@ class SaprotBaseModel(AbstractModel):
         self.valid_metrics_list['step'] = []
     
     def _init_lora(self):
-        # Check if this is an ESM3 model
-        from esm.models.esm3 import ESM3
-        is_esm3 = isinstance(self.model, ESM3)
+        # Check if this is an ESM3 or ESMC model
+        try:
+            from esm.models.esm3 import ESM3
+            is_esm3 = isinstance(self.model, ESM3)
+        except:
+            is_esm3 = False
         
-        if is_esm3:
-            # Use ESM3 LoRA
-            print("🔧 Using ESM3 LoRA...")
+        try:
+            from esm.models.esmc import ESMC
+            is_esmc = isinstance(self.model, ESMC)
+        except:
+            is_esmc = False
+        
+        if is_esm3 or is_esmc:
+            # Use ESM3/ESMC LoRA
+            model_name = "ESMC" if is_esmc else "ESM3"
+            print(f"🔧 Using {model_name} LoRA...")
             # 使用绝对导入，因为saprot包已安装
             from saprot.utils.esm3_lora import create_esm3_lora_model
             
@@ -104,7 +114,7 @@ class SaprotBaseModel(AbstractModel):
                 dropout=lora_dropout
             )
             
-            print("✅ ESM3 LoRA initialized successfully")
+            print(f"✅ {model_name} LoRA initialized successfully")
             self.model.print_trainable_parameters()
             
             # After LoRA model is initialized, add trainable parameters to optimizer
