@@ -109,6 +109,9 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                 # 如果label是其他格式,尝试转换
                 label = list(label) if hasattr(label, '__iter__') else [label]
                 label = [label[i] for i in keep_positions if i < len(label)]
+            
+            # 同时清理序列,移除#标记
+            seq = seq.replace('#', '')
 
         # 始终使用ESM3编码
         try:
@@ -116,7 +119,7 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                 # 使用ESM3模型编码sequence
                 # print(f"[token分类数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
                 
-                # 创建ESMProtein对象并编码
+                # 创建ESMProtein对象并编码 (此时seq已经不包含#了)
                 protein = ESMProtein(sequence=seq)
                 
                 with torch.no_grad():  # 编码时不需要梯度
