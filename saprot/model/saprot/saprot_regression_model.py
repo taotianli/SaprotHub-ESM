@@ -439,12 +439,19 @@ class SaprotRegressionModel(SaprotBaseModel):
         outputs_flat = outputs.flatten()
         fitness_flat = fitness.flatten()
         
+        # Debug: check outputs and labels
+        # print(f"[Regression Debug] Stage: {stage}")
+        # print(f"[Regression Debug] Outputs shape: {outputs_flat.shape}, values: {outputs_flat[:5]}")
+        # print(f"[Regression Debug] Labels shape: {fitness_flat.shape}, values: {fitness_flat[:5]}")
+        
         loss = torch.nn.functional.mse_loss(outputs_flat, fitness_flat)
         
         # Update metrics - 使用自定义的SimpleRegressionMetrics
         with torch.no_grad():
-            for metric in self.metrics[stage].values():
+            for metric_name, metric in self.metrics[stage].items():
                 metric.update(outputs_flat.detach(), fitness_flat)
+                # Debug: check if metrics are being updated
+                # print(f"[Regression Debug] Updated metric {metric_name}, preds count: {len(metric.preds)}")
             
         if stage == "train":
             log_dict = self.get_log_dict("train")
@@ -551,6 +558,22 @@ class SaprotRegressionModel(SaprotBaseModel):
         # self._print_regression_head_weights("测试")
         
         log_dict = self.get_log_dict("test")
+        
+        # Debug: check if metrics are computed correctly
+        print(f"\n[Regression Debug] Test Epoch End")
+        metrics_obj = self.metrics["test"].get("test_metrics")
+        if metrics_obj:
+            print(f"[Regression Debug] Test metrics object found")
+            print(f"[Regression Debug] Number of predictions: {len(metrics_obj.preds)}")
+            if len(metrics_obj.preds) > 0:
+                print(f"[Regression Debug] Spearman: {metrics_obj.compute_spearman()}")
+                print(f"[Regression Debug] Pearson: {metrics_obj.compute_pearson()}")
+                print(f"[Regression Debug] R2: {metrics_obj.compute_r2()}")
+                print(f"[Regression Debug] MSE: {metrics_obj.compute_mse()}")
+        else:
+            print(f"[Regression Debug] No test metrics object found")
+        print(f"[Regression Debug] Log dict: {log_dict}\n")
+        
         if len(self.test_outputs) > 0:
             log_dict["test_loss"] = torch.mean(torch.stack(self.test_outputs))
         else:
