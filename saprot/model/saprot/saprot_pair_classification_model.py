@@ -265,11 +265,22 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # 获取ESM3模型的隐藏维度
-        if hasattr(self.model, 'embed_tokens'):
+        # 检测模型类型并获取对应的隐藏维度
+        # 优先使用显式传递的base_model_type参数
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            if self.base_model_type == "esmc":
+                hidden_size = 960
+            else:  # esm3
+                hidden_size = 2560
+        elif hasattr(self.model, 'embed_tokens'):
             hidden_size = self.model.embed_tokens.weight.shape[1]
         else:
-            hidden_size = 2560  # ESM3的标准隐藏维度
+            # 回退:尝试从模型类型名称检测
+            model_class_name = type(self.model).__name__
+            if "ESMC" in model_class_name:
+                hidden_size = 960
+            else:
+                hidden_size = 2560  # ESM3的标准隐藏维度
         
         # 优先处理tokens
         if "tokens" in inputs_1 and "tokens" in inputs_2:
@@ -322,12 +333,18 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             sequences_2 = inputs_2["sequences"]
             
             # Check if model is ESMC or ESM3
-            model_type = getattr(self, 'model_type', 'esm3')
+            # 优先使用显式传递的base_model_type参数
+            if hasattr(self, 'base_model_type') and self.base_model_type:
+                use_esmc = (self.base_model_type == "esmc")
+            else:
+                # 回退到检测模型类型
+                model_class_name = type(self.model).__name__
+                use_esmc = ("ESMC" in model_class_name)
             
             features_1 = []
             features_2 = []
             
-            if model_type == "esmc":
+            if use_esmc:
                 # Process sequences using ESMC
                 from esm.sdk.api import ESMProtein, LogitsConfig
                 
