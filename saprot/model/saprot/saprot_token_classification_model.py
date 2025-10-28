@@ -288,90 +288,80 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                                device=device, dtype=model_dtype)
                 
                 if use_esmc:
-                    # Process sequences using ESMC
-                    from esm.sdk.api import ESMProtein, LogitsConfig
-                    
+                    # Process sequences using ESMC (using tokenizer approach)
                     try:
+                        # Get tokenizer from model
+                        tokenizer = self.model.tokenizer
+                        
                         # Process each sequence
                         for i, seq in enumerate(sequences):
-                            protein = ESMProtein(sequence=seq)
+                            # Encode sequence with tokenizer (adds special tokens automatically)
+                            tokens = tokenizer.encode(seq, add_special_tokens=True)
+                            tokens_tensor = torch.tensor([tokens], device=device)
                             
                             # Use no_grad only for encoding, not for classification head
                             with torch.no_grad():
-                                protein_tensor = self.model.encode(protein)
-                                logits_output = self.model.logits(
-                                    protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
-                                )
+                                # Forward pass through ESMC
+                                out = self.model(tokens_tensor)
                                 
-                            if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
-                                # embeddings shape: [seq_len, hidden_dim] or [1, seq_len, hidden_dim]
-                                features = logits_output.embeddings
-                                
-                                # Ensure features is 2D [seq_len, hidden_dim]
-                                if features.dim() == 3:
-                                    features = features.squeeze(0)  # Remove batch dimension if present
-                                elif features.dim() != 2:
-                                    raise ValueError(f"Expected features to be 2D or 3D, got {features.dim()}D with shape {features.shape}")
-                                
-                                # Get actual ESMC hidden size from embeddings
-                                esmc_hidden_size = features.shape[-1]
-                                
-                                # Ensure features have correct dtype
-                                features = features.to(device=device, dtype=model_dtype)
-                                
-                                # IMPORTANT: ESMC embeddings include special tokens (BOS, EOS, etc.)
-                                # The actual sequence length is len(seq), but embeddings might be longer
-                                # We need to extract only the embeddings corresponding to the actual sequence
-                                actual_seq_len = len(seq)
-                                esmc_embedding_len = len(features)
-                                
-                                # Calculate how many special tokens were added
-                                num_special_tokens = esmc_embedding_len - actual_seq_len
-                                
-                                # Debug: print this info once with sequence details
-                                if not hasattr(self, '_esmc_token_debug'):
-                                    print(f"\n[DEBUG] ESMC Token Info:")
-                                    print(f"  Input sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-                                    print(f"  Actual sequence length: {actual_seq_len}")
-                                    print(f"  ESMC embeddings length: {esmc_embedding_len}")
-                                    print(f"  Special tokens added: {num_special_tokens}")
-                                    
-                                    # Try to inspect the protein_tensor to see tokens
-                                    if hasattr(protein_tensor, 'sequence'):
-                                        seq_tokens = protein_tensor.sequence
-                                        print(f"  Protein tensor sequence tokens shape: {seq_tokens.shape if hasattr(seq_tokens, 'shape') else 'N/A'}")
-                                        if hasattr(seq_tokens, 'shape') and len(seq_tokens.shape) > 0:
-                                            print(f"  First 10 tokens: {seq_tokens[:10].tolist() if hasattr(seq_tokens[:10], 'tolist') else seq_tokens[:10]}")
-                                    
-                                    print(f"  Features shape after squeeze: {features.shape}")
-                                    self._esmc_token_debug = True
-                                
-                                # ESMC adds special tokens, typically BOS at the start
-                                # If embeddings are longer than sequence, extract the middle portion
-                                if esmc_embedding_len > actual_seq_len:
-                                    # Assuming special tokens are distributed: BOS at start, possibly EOS at end
-                                    # For now, assume 1 BOS token at start (most common case)
-                                    # Extract features[1:actual_seq_len+1] to skip BOS
-                                    features = features[1:actual_seq_len+1]
-                                
-                                # Now truncate or pad to the target sequence_length (max length in batch)
-                                if len(features) > sequence_length:
-                                    features = features[:sequence_length]
-                                elif len(features) < sequence_length:
-                                    # Use actual ESMC hidden size for padding
-                                    padding = torch.zeros(sequence_length - len(features), esmc_hidden_size, 
-                                                        device=device, dtype=model_dtype)
-                                    features = torch.cat([features, padding], dim=0)
-                                
-                                # Update sequence_embeddings tensor size if needed
-                                if sequence_embeddings.shape[-1] != esmc_hidden_size:
-                                    sequence_embeddings = torch.zeros(batch_size, sequence_length, esmc_hidden_size,
-                                                                    device=device, dtype=model_dtype)
-                                
-                                # Store embedding representation
-                                sequence_embeddings[i] = features
+                                # Extract embeddings based on output type
+                                if hasattr(out, "embeddings"):
+                                    token_embs = out.embeddings
+                                elif hasattr(out, "last_hidden_state"):
+                                    token_embs = out.last_hidden_state
+                                elif isinstance(out, dict):
+                                    token_embs = list(out.values())[0]
+                                elif isinstance(out, (tuple, list)):
+                                    token_embs = out[0]
+                                else:
+                                    raise RuntimeError(f"Cannot extract embeddings from output type: {type(out)}")
+                            
+                            # Ensure features is 2D [seq_len, hidden_dim]
+                            if token_embs.dim() == 3:
+                                token_embs = token_embs.squeeze(0)  # Remove batch dimension
+                            
+                            # Get actual ESMC hidden size from embeddings
+                            esmc_hidden_size = token_embs.shape[-1]
+                            
+                            # Ensure correct dtype
+                            features = token_embs.to(device=device, dtype=model_dtype)
+                            
+                            # Debug: print info once
+                            if not hasattr(self, '_esmc_token_debug'):
+                                print(f"\n[DEBUG] ESMC Token Info (using tokenizer):")
+                                print(f"  Input sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                                print(f"  Sequence length: {len(seq)}")
+                                print(f"  Encoded tokens length: {len(tokens)}")
+                                print(f"  Token embeddings shape: {features.shape}")
+                                print(f"  First 10 tokens: {tokens[:10]}")
+                                self._esmc_token_debug = True
+                            
+                            # ESMC tokenizer adds BOS and EOS tokens
+                            # Remove them to get only sequence embeddings: features[1:-1]
+                            actual_seq_len = len(seq)
+                            if len(features) > actual_seq_len:
+                                # Skip BOS (first) and EOS (last) tokens
+                                features = features[1:-1]
+                            
+                            # Update sequence_embeddings tensor size if needed
+                            if sequence_embeddings.shape[-1] != esmc_hidden_size:
+                                sequence_embeddings = torch.zeros(batch_size, sequence_length, esmc_hidden_size,
+                                                                device=device, dtype=model_dtype)
+                            
+                            # Truncate or pad to the target sequence_length (max length in batch)
+                            if len(features) > sequence_length:
+                                features = features[:sequence_length]
+                            elif len(features) < sequence_length:
+                                padding = torch.zeros(sequence_length - len(features), esmc_hidden_size, 
+                                                    device=device, dtype=model_dtype)
+                                features = torch.cat([features, padding], dim=0)
+                            
+                            # Store embedding representation
+                            sequence_embeddings[i] = features
                     except Exception as e:
                         print(f"Error processing ESMC sequence: {e}")
+                        import traceback
+                        traceback.print_exc()
                 else:
                     # Process sequences using ESM3
                     from esm.sdk.api import ESMProtein
