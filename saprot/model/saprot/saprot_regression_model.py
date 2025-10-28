@@ -59,7 +59,8 @@ class SimpleRegressionMetrics:
         try:
             from scipy.stats import spearmanr
             corr, _ = spearmanr(preds.numpy(), targets.numpy())
-            return corr
+            # 确保返回Python float而不是numpy.float64
+            return float(corr)
         except:
             # 如果scipy不可用，返回pearson作为近似
             return self.compute_pearson()
@@ -780,6 +781,25 @@ class SaprotRegressionModel(SaprotBaseModel):
             log_dict["valid_loss"] = torch.mean(torch.stack(self.valid_outputs))
         else:
             log_dict["valid_loss"] = torch.tensor(0.0)
+
+        # Debug: check validation metrics before plotting
+        print(f"\n[Regression Debug] Validation Epoch End")
+        metrics_obj = self.metrics["valid"].get("valid_metrics")
+        if metrics_obj:
+            print(f"[Regression Debug] Valid metrics object found")
+            print(f"[Regression Debug] Number of predictions: {len(metrics_obj.preds)}")
+            if len(metrics_obj.preds) > 0:
+                print(f"[Regression Debug] Spearman: {metrics_obj.compute_spearman()}")
+                print(f"[Regression Debug] Pearson: {metrics_obj.compute_pearson()}")
+                print(f"[Regression Debug] R2: {metrics_obj.compute_r2()}")
+                print(f"[Regression Debug] MSE: {metrics_obj.compute_mse()}")
+        else:
+            print(f"[Regression Debug] No valid metrics object found")
+        print(f"[Regression Debug] Log dict keys: {log_dict.keys()}")
+        print(f"[Regression Debug] Log dict values:")
+        for k, v in log_dict.items():
+            print(f"  {k}: {v} (type: {type(v).__name__})")
+        print()
 
         self.log_info(log_dict)
         self.reset_metrics("valid")

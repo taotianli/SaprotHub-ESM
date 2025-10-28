@@ -59,7 +59,8 @@ class SimpleRegressionMetrics:
         try:
             from scipy.stats import spearmanr
             corr, _ = spearmanr(preds.numpy(), targets.numpy())
-            return corr
+            # 确保返回Python float而不是numpy.float64
+            return float(corr)
         except:
             # 如果scipy不可用，返回pearson作为近似
             return self.compute_pearson()
