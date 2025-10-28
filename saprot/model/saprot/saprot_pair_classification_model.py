@@ -402,9 +402,23 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                             # Get actual hidden size from embeddings
                             if esmc_hidden_size is None:
                                 esmc_hidden_size = logits_output_1.embeddings.shape[-1]
+                                print(f"[DEBUG-ESMC-EMBED] embeddings_1 shape: {logits_output_1.embeddings.shape}")
+                                print(f"[DEBUG-ESMC-EMBED] embeddings_2 shape: {logits_output_2.embeddings.shape}")
                             
-                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
-                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
+                            # 如果embeddings是3D [batch, seq_len, hidden_dim],先去掉batch维度
+                            emb_1 = logits_output_1.embeddings
+                            emb_2 = logits_output_2.embeddings
+                            if emb_1.dim() == 3:
+                                emb_1 = emb_1.squeeze(0)  # [seq_len, hidden_dim]
+                            if emb_2.dim() == 3:
+                                emb_2 = emb_2.squeeze(0)  # [seq_len, hidden_dim]
+                            
+                            seq_feature_1 = emb_1.mean(dim=0).float()  # [esmc_hidden_size]
+                            seq_feature_2 = emb_2.mean(dim=0).float()  # [esmc_hidden_size]
+                            
+                            if esmc_hidden_size is None or i == 0:
+                                print(f"[DEBUG-ESMC-POOLED] seq_feature_1 shape: {seq_feature_1.shape}")
+                                print(f"[DEBUG-ESMC-POOLED] seq_feature_2 shape: {seq_feature_2.shape}")
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
