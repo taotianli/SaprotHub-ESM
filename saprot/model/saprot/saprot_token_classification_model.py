@@ -434,11 +434,14 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     f"Got input keys: {available_keys}"
                 )
         
-        # Debug: print shapes before returning
-        if not hasattr(self, '_forward_shape_printed'):
-            print(f"\n[DEBUG] Forward output shapes:")
+        # Debug: print shapes before returning (print for first 2 batches)
+        if not hasattr(self, '_forward_debug_count'):
+            self._forward_debug_count = 0
+        
+        if self._forward_debug_count < 2:
+            print(f"\n[DEBUG] Forward output shapes (batch {self._forward_debug_count + 1}):")
             print(f"  logits.shape: {logits.shape}")
-            self._forward_shape_printed = True
+            self._forward_debug_count += 1
         
         return logits
     
@@ -505,17 +508,23 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             # Just clear the saved sequences, no cleaning needed
             self._current_sequences = None
         
-        # Debug: print shapes before processing
-        if not hasattr(self, '_loss_shape_printed'):
-            print(f"\n[DEBUG] Loss function input shapes:")
+        # Debug: print shapes before processing (print for first 2 batches)
+        if not hasattr(self, '_loss_debug_count'):
+            self._loss_debug_count = 0
+        
+        if self._loss_debug_count < 2:
+            print(f"\n[DEBUG] Loss function input shapes (batch {self._loss_debug_count + 1}):")
             print(f"  logits.shape: {logits.shape}")
             print(f"  label.shape: {label.shape}")
             # Move to CPU to safely get min/max
-            label_cpu = label.cpu()
-            print(f"  label min/max: {label_cpu.min().item()}/{label_cpu.max().item()}")
-            print(f"  num_labels: {self.num_labels}")
-            print(f"  label unique values: {torch.unique(label_cpu).tolist()}")
-            self._loss_shape_printed = True
+            try:
+                label_cpu = label.cpu()
+                print(f"  label min/max: {label_cpu.min().item()}/{label_cpu.max().item()}")
+                print(f"  num_labels: {self.num_labels}")
+                print(f"  label unique values: {torch.unique(label_cpu).tolist()}")
+            except Exception as e:
+                print(f"  Error getting label stats: {e}")
+            self._loss_debug_count += 1
         
         # Flatten the logits and labels
         logits = logits.view(-1, self.num_labels)
