@@ -501,21 +501,10 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
         
-        # Clean labels if we have saved sequences from forward pass (ESMC case)
+        # Note: Labels are already cleaned in dataset for ESMC models
+        # No need to clean them here anymore
+        # Just clear the saved sequences if they exist
         if hasattr(self, '_current_sequences') and self._current_sequences is not None:
-            # Check if using ESMC
-            use_esmc = False
-            if hasattr(self, 'base_model_type') and self.base_model_type:
-                use_esmc = (self.base_model_type == "esmc")
-            else:
-                model_type = getattr(self, 'model_type', 'esm3')
-                use_esmc = (model_type == "esmc")
-            
-            if use_esmc:
-                # Clean labels to match cleaned sequences (remove # positions)
-                label = self._clean_labels_for_esmc(label, self._current_sequences)
-            
-            # Clear the saved sequences
             self._current_sequences = None
         
         # Debug: print shapes before processing (print for first 2 batches)

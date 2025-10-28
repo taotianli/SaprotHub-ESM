@@ -96,6 +96,19 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         # Convert sequence to string format for ESM3
         if isinstance(seq, list):
             seq = "".join(seq)
+        
+        # 如果序列包含结构标记(#),需要清理标签,只保留对应氨基酸位置的标签
+        # 因为ESM3/ESMC模型只处理氨基酸序列,不包括#
+        if '#' in seq:
+            # 找到所有非#位置
+            keep_positions = [i for i, char in enumerate(seq) if char != '#']
+            # 只保留这些位置的标签
+            if isinstance(label, list):
+                label = [label[i] for i in keep_positions if i < len(label)]
+            else:
+                # 如果label是其他格式,尝试转换
+                label = list(label) if hasattr(label, '__iter__') else [label]
+                label = [label[i] for i in keep_positions if i < len(label)]
 
         # 始终使用ESM3编码
         try:
