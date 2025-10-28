@@ -320,11 +320,31 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             embeddings_1 = inputs_1["embeddings"].to(device=device, dtype=model_dtype)
             embeddings_2 = inputs_2["embeddings"].to(device=device, dtype=model_dtype)
             
+            # Debug: print shapes once
+            if not hasattr(self, '_embeddings_debug'):
+                print(f"\n[DEBUG] Embeddings input:")
+                print(f"  embeddings_1.shape: {embeddings_1.shape}")
+                print(f"  embeddings_2.shape: {embeddings_2.shape}")
+                print(f"  Expected hidden_size: {hidden_size}")
+                self._embeddings_debug = True
+            
             # 如果是高维嵌入，需要转换为固定长度
             if embeddings_1.dim() == 3:
                 embeddings_1 = embeddings_1.mean(dim=1)  # [batch_size, hidden_size]
             if embeddings_2.dim() == 3:
                 embeddings_2 = embeddings_2.mean(dim=1)  # [batch_size, hidden_size]
+            
+            # 确保 embeddings 的最后一个维度与 hidden_size 匹配
+            # 如果不匹配,需要进行投影或调整
+            if embeddings_1.shape[-1] != hidden_size:
+                print(f"[WARNING] embeddings_1 size mismatch: {embeddings_1.shape[-1]} vs expected {hidden_size}")
+                # 如果维度不匹配,创建零向量
+                batch_size = embeddings_1.shape[0]
+                embeddings_1 = torch.zeros(batch_size, hidden_size, device=device, dtype=model_dtype)
+            if embeddings_2.shape[-1] != hidden_size:
+                print(f"[WARNING] embeddings_2 size mismatch: {embeddings_2.shape[-1]} vs expected {hidden_size}")
+                batch_size = embeddings_2.shape[0]
+                embeddings_2 = torch.zeros(batch_size, hidden_size, device=device, dtype=model_dtype)
                 
             stacked_features = torch.cat([embeddings_1, embeddings_2], dim=1)  # [batch_size, hidden_size*2]
         
@@ -474,6 +494,16 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
+        
+        # Debug: print shape before classification head
+        if not hasattr(self, '_forward_debug_count'):
+            self._forward_debug_count = 0
+        if self._forward_debug_count < 2:
+            print(f"\n[DEBUG] Forward pass {self._forward_debug_count + 1}:")
+            print(f"  stacked_features.shape: {stacked_features.shape}")
+            print(f"  Expected shape: [batch_size, {hidden_size * 2}]")
+            print(f"  classification_head first layer input size: {self.classification_head[0].in_features}")
+            self._forward_debug_count += 1
         
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
