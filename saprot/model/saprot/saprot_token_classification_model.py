@@ -458,8 +458,10 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             # Find positions without # in the original sequence
             keep_positions = [i for i, char in enumerate(orig_seq) if char != '#']
             # Extract labels only at those positions
-            if len(keep_positions) < len(label_seq):
-                cleaned_label = label_seq[keep_positions]
+            if len(keep_positions) > 0 and len(keep_positions) <= len(label_seq):
+                # Use advanced indexing to extract labels
+                keep_positions_tensor = torch.tensor(keep_positions, device=label_seq.device)
+                cleaned_label = torch.index_select(label_seq, 0, keep_positions_tensor)
             else:
                 cleaned_label = label_seq
             cleaned_labels_list.append(cleaned_label)
@@ -488,6 +490,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             print(f"\n[DEBUG] Loss function input shapes:")
             print(f"  logits.shape: {logits.shape}")
             print(f"  label.shape: {label.shape}")
+            print(f"  label min/max: {label.min().item()}/{label.max().item()}")
+            print(f"  num_labels: {self.num_labels}")
             self._loss_shape_printed = True
         
         # Flatten the logits and labels
