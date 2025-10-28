@@ -272,7 +272,13 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 sequences = inputs["sequences"]
                 
                 # Check if model is ESMC or ESM3
-                model_type = getattr(self, 'model_type', 'esm3')
+                # 优先使用显式传递的base_model_type参数
+                if hasattr(self, 'base_model_type') and self.base_model_type:
+                    use_esmc = (self.base_model_type == "esmc")
+                else:
+                    # 回退到旧的model_type属性
+                    model_type = getattr(self, 'model_type', 'esm3')
+                    use_esmc = (model_type == "esmc")
                 
                 batch_size = len(sequences)
                 sequence_length = max(len(seq) for seq in sequences)
@@ -281,7 +287,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 sequence_embeddings = torch.zeros(batch_size, sequence_length, hidden_size, 
                                                device=device, dtype=model_dtype)
                 
-                if model_type == "esmc":
+                if use_esmc:
                     # Process sequences using ESMC
                     from esm.sdk.api import ESMProtein, LogitsConfig
                     
@@ -298,8 +304,14 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 )
                                 
                             if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
-                                # embeddings shape: [seq_len, hidden_dim]
+                                # embeddings shape: [seq_len, hidden_dim] or [1, seq_len, hidden_dim]
                                 features = logits_output.embeddings
+                                
+                                # Ensure features is 2D [seq_len, hidden_dim]
+                                if features.dim() == 3:
+                                    features = features.squeeze(0)  # Remove batch dimension if present
+                                elif features.dim() != 2:
+                                    raise ValueError(f"Expected features to be 2D or 3D, got {features.dim()}D with shape {features.shape}")
                                 
                                 # Get actual ESMC hidden size from embeddings
                                 esmc_hidden_size = features.shape[-1]
@@ -314,7 +326,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                     # Use actual ESMC hidden size for padding
                                     padding = torch.zeros(sequence_length - len(features), esmc_hidden_size, 
                                                         device=device, dtype=model_dtype)
-                                    features = torch.cat([features, padding])
+                                    features = torch.cat([features, padding], dim=0)
                                 
                                 # Update sequence_embeddings tensor size if needed
                                 if sequence_embeddings.shape[-1] != esmc_hidden_size:
