@@ -77,7 +77,12 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         super().initialize_model()
         
         # 判断是ESMC还是ESM3模型
-        model_type = type(self.model).__name__
+        # 需要检查实际的base_model（可能被LoRA包装）
+        actual_model = self.model
+        if hasattr(self.model, 'base_model'):
+            actual_model = self.model.base_model
+        
+        model_type = type(actual_model).__name__
         
         if "ESMC" in model_type:
             # ESMC模型使用960维

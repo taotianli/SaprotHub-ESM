@@ -63,7 +63,12 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     def _create_classifier(self):
         """创建分类头"""
         # 判断是ESMC还是ESM3模型
-        model_type = type(self.model).__name__
+        # 需要检查实际的base_model（可能被LoRA包装）
+        actual_model = self.model
+        if hasattr(self.model, 'base_model'):
+            actual_model = self.model.base_model
+        
+        model_type = type(actual_model).__name__
         
         if "ESMC" in model_type:
             # ESMC模型使用960维
@@ -112,7 +117,12 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         model_dtype = next(self.model.parameters()).dtype
         
         # 判断是ESMC还是ESM3模型，获取对应的隐藏维度
-        model_type = type(self.model).__name__
+        # 需要检查实际的base_model（可能被LoRA包装）
+        actual_model = self.model
+        if hasattr(self.model, 'base_model'):
+            actual_model = self.model.base_model
+        
+        model_type = type(actual_model).__name__
         if "ESMC" in model_type:
             hidden_size = 960  # ESMC模型使用960维
         elif hasattr(self.model, 'embed_tokens'):
