@@ -2827,6 +2827,12 @@ def choose_training_task():
     config.model.kwargs.config_path = base_model
     config.model.kwargs.load_pretrained = True  # 确保加载预训练权重
     # config.dataset.kwargs.tokenizer = base_model  # ESM3不需要tokenizer
+    
+    # 传递base_model_type以便模型判断是ESM3还是ESMC
+    if base_model == "esmc_300m":
+        config.model.kwargs.base_model_type = "esmc"
+    else:
+        config.model.kwargs.base_model_type = "esm3"
 
     # ESM3使用自己的编码方式，不需要HuggingFace tokenizer
 

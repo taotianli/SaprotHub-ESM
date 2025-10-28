@@ -41,13 +41,15 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotTokenClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels: int, **kwargs):
+    def __init__(self, num_labels: int, base_model_type: str = None, **kwargs):
         """
         Args:
             num_labels: number of labels
+            base_model_type: 'esm3' or 'esmc', explicitly specify model type
             **kwargs: other arguments for SaprotBaseModel
         """
         self.num_labels = num_labels
+        self.base_model_type = base_model_type  # 保存base_model_type
         # For MCC calculation
         self.preds = []
         self.targets = []
@@ -62,39 +64,56 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     
     def _create_classifier(self):
         """创建分类头"""
-        # 调试：打印模型信息
-        print(f"\n{'='*60}")
-        print(f"[DEBUG] Creating Token Classifier")
-        print(f"[DEBUG] self.model type: {type(self.model).__name__}")
-        print(f"[DEBUG] self.model has base_model: {hasattr(self.model, 'base_model')}")
-        
-        # 判断是ESMC还是ESM3模型
-        # 需要检查实际的base_model（可能被LoRA包装）
-        actual_model = self.model
-        if hasattr(self.model, 'base_model'):
-            actual_model = self.model.base_model
-            print(f"[DEBUG] base_model type: {type(actual_model).__name__}")
-        
-        model_type = type(actual_model).__name__
-        print(f"[DEBUG] Detected model_type: {model_type}")
-        
-        # 检查是否能找到embed_tokens
-        print(f"[DEBUG] self.model has embed_tokens: {hasattr(self.model, 'embed_tokens')}")
-        if hasattr(self.model, 'embed_tokens'):
-            print(f"[DEBUG] embed_tokens shape: {self.model.embed_tokens.weight.shape}")
-        
-        if "ESMC" in model_type:
-            # ESMC模型使用960维
-            hidden_size = 960
-            print(f"[DEBUG] Using ESMC hidden_size: {hidden_size}")
-        elif hasattr(self.model, 'embed_tokens'):
-            # ESM3模型从embed_tokens获取维度
-            hidden_size = self.model.embed_tokens.weight.shape[1]
-            print(f"[DEBUG] Using ESM3 hidden_size from embed_tokens: {hidden_size}")
+        # 优先使用显式传递的base_model_type参数
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            print(f"\n{'='*60}")
+            print(f"[DEBUG] Creating Token Classifier")
+            print(f"[DEBUG] Using explicit base_model_type: {self.base_model_type}")
+            
+            if self.base_model_type == "esmc":
+                hidden_size = 960
+                print(f"[DEBUG] Using ESMC hidden_size: {hidden_size}")
+            else:  # esm3
+                hidden_size = 2560
+                print(f"[DEBUG] Using ESM3 hidden_size: {hidden_size}")
         else:
-            # 默认ESM3的标准隐藏维度
-            hidden_size = 2560
-            print(f"[DEBUG] Using default hidden_size: {hidden_size}")
+            # 回退到自动检测（保留原有逻辑用于兼容性）
+            print(f"\n{'='*60}")
+            print(f"[DEBUG] Creating Token Classifier (auto-detect)")
+            print(f"[DEBUG] self.model type: {type(self.model).__name__}")
+            print(f"[DEBUG] self.model has base_model: {hasattr(self.model, 'base_model')}")
+            
+            # 判断是ESMC还是ESM3模型
+            # 需要检查实际的base_model（可能被LoRA包装）
+            actual_model = self.model
+            if hasattr(self.model, 'base_model'):
+                actual_model = self.model.base_model
+                print(f"[DEBUG] Found base_model, type: {type(actual_model).__name__}")
+            elif hasattr(self.model, 'esm3_model'):
+                # Our custom ESM3LoRAWrapper uses esm3_model
+                actual_model = self.model.esm3_model
+                print(f"[DEBUG] Found esm3_model (custom LoRA), type: {type(actual_model).__name__}")
+            
+            model_type = type(actual_model).__name__
+            print(f"[DEBUG] Final detected model_type: {model_type}")
+            
+            # 检查是否能找到embed_tokens
+            print(f"[DEBUG] self.model has embed_tokens: {hasattr(self.model, 'embed_tokens')}")
+            if hasattr(self.model, 'embed_tokens'):
+                print(f"[DEBUG] embed_tokens shape: {self.model.embed_tokens.weight.shape}")
+            
+            if "ESMC" in model_type:
+                # ESMC模型使用960维
+                hidden_size = 960
+                print(f"[DEBUG] Using ESMC hidden_size: {hidden_size}")
+            elif hasattr(self.model, 'embed_tokens'):
+                # ESM3模型从embed_tokens获取维度
+                hidden_size = self.model.embed_tokens.weight.shape[1]
+                print(f"[DEBUG] Using ESM3 hidden_size from embed_tokens: {hidden_size}")
+            else:
+                # 默认ESM3的标准隐藏维度
+                hidden_size = 2560
+                print(f"[DEBUG] Using default hidden_size: {hidden_size}")
         
         # 获取模型的数据类型
         model_dtype = next(self.model.parameters()).dtype
@@ -135,36 +154,28 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         model_dtype = next(self.model.parameters()).dtype
         
         # 判断是ESMC还是ESM3模型，获取对应的隐藏维度
-        # 需要检查实际的base_model（可能被LoRA包装）
-        actual_model = self.model
-        if hasattr(self.model, 'base_model'):
-            actual_model = self.model.base_model
-        
-        model_type = type(actual_model).__name__
-        
-        # 调试：第一次forward时打印
-        if not hasattr(self, '_forward_debug_printed'):
-            print(f"\n{'='*60}")
-            print(f"[DEBUG] Token Classification Forward")
-            print(f"[DEBUG] model_type: {model_type}")
-            self._forward_debug_printed = True
-        
-        if "ESMC" in model_type:
-            hidden_size = 960  # ESMC模型使用960维
-            if not hasattr(self, '_forward_debug_printed2'):
-                print(f"[DEBUG] Forward using ESMC hidden_size: {hidden_size}")
-                self._forward_debug_printed2 = True
-        elif hasattr(self.model, 'embed_tokens'):
-            hidden_size = self.model.embed_tokens.weight.shape[1]
-            if not hasattr(self, '_forward_debug_printed2'):
-                print(f"[DEBUG] Forward using ESM3 hidden_size: {hidden_size}")
-                self._forward_debug_printed2 = True
+        # 优先使用显式传递的base_model_type参数
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            if self.base_model_type == "esmc":
+                hidden_size = 960
+            else:
+                hidden_size = 2560
         else:
-            hidden_size = 2560  # ESM3的标准隐藏维度
-            if not hasattr(self, '_forward_debug_printed2'):
-                print(f"[DEBUG] Forward using default hidden_size: {hidden_size}")
-                print(f"{'='*60}\n")
-                self._forward_debug_printed2 = True
+            # 回退到自动检测
+            actual_model = self.model
+            if hasattr(self.model, 'base_model'):
+                actual_model = self.model.base_model
+            elif hasattr(self.model, 'esm3_model'):
+                actual_model = self.model.esm3_model
+            
+            model_type = type(actual_model).__name__
+            
+            if "ESMC" in model_type:
+                hidden_size = 960
+            elif hasattr(self.model, 'embed_tokens'):
+                hidden_size = self.model.embed_tokens.weight.shape[1]
+            else:
+                hidden_size = 2560
         
         # 处理不同类型的输入
         if inputs is None and sequences is not None:

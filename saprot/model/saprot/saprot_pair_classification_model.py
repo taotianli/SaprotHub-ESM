@@ -41,15 +41,17 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotPairClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels, fixed_seq_length: int = 2048, optimizer_kwargs=None, lr_scheduler_kwargs=None, **kwargs):
+    def __init__(self, num_labels, fixed_seq_length: int = 2048, base_model_type: str = None, optimizer_kwargs=None, lr_scheduler_kwargs=None, **kwargs):
         """
         Args:
             num_labels: number of labels
             fixed_seq_length: 固定序列长度，用于截断或padding
+            base_model_type: 'esm3' or 'esmc', explicitly specify model type
             optimizer_kwargs: 优化器参数
             lr_scheduler_kwargs: 学习率调度器参数
             **kwargs: other arguments for SaprotBaseModel
         """
+        self.base_model_type = base_model_type  # 保存base_model_type
         # 设置优化器和学习率调度器参数
         self.optimizer_kwargs = optimizer_kwargs or {
             "class": "AdamW",
@@ -76,23 +78,30 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         """初始化ESM3模型和分类头"""
         super().initialize_model()
         
-        # 判断是ESMC还是ESM3模型
-        # 需要检查实际的base_model（可能被LoRA包装）
-        actual_model = self.model
-        if hasattr(self.model, 'base_model'):
-            actual_model = self.model.base_model
-        
-        model_type = type(actual_model).__name__
-        
-        if "ESMC" in model_type:
-            # ESMC模型使用960维
-            hidden_size = 960
-        elif hasattr(self.model, 'embed_tokens'):
-            # ESM3模型从embed_tokens获取维度
-            hidden_size = self.model.embed_tokens.weight.shape[1]
+        # 优先使用显式传递的base_model_type参数
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            if self.base_model_type == "esmc":
+                hidden_size = 960
+            else:  # esm3
+                hidden_size = 2560
+            print(f"[DEBUG] Pair Classifier using explicit base_model_type: {self.base_model_type}, hidden_size: {hidden_size}")
         else:
-            # 默认ESM3的标准隐藏维度
-            hidden_size = 2560
+            # 回退到自动检测
+            actual_model = self.model
+            if hasattr(self.model, 'base_model'):
+                actual_model = self.model.base_model
+            elif hasattr(self.model, 'esm3_model'):
+                actual_model = self.model.esm3_model
+            
+            model_type = type(actual_model).__name__
+            
+            if "ESMC" in model_type:
+                hidden_size = 960
+            elif hasattr(self.model, 'embed_tokens'):
+                hidden_size = self.model.embed_tokens.weight.shape[1]
+            else:
+                hidden_size = 2560
+            print(f"[DEBUG] Pair Classifier auto-detected model_type: {model_type}, hidden_size: {hidden_size}")
         
         # 对于pair分类，我们需要两倍的hidden_size，因为要处理两个序列
         hidden_size = hidden_size * 2
