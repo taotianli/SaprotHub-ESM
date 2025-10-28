@@ -158,6 +158,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         
         # 优先使用显式传递的base_model_type参数
         if hasattr(self, 'base_model_type') and self.base_model_type:
+            model_type = self.base_model_type.upper()  # 用于显示
             if self.base_model_type == "esmc":
                 hidden_size = 960
             else:  # esm3
