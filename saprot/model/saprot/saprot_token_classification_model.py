@@ -323,11 +323,35 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 # The actual sequence length is len(seq), but embeddings might be longer
                                 # We need to extract only the embeddings corresponding to the actual sequence
                                 actual_seq_len = len(seq)
+                                esmc_embedding_len = len(features)
                                 
-                                # ESMC typically adds BOS token at the start
-                                # So embeddings[1:actual_seq_len+1] corresponds to the actual sequence
-                                if len(features) > actual_seq_len:
-                                    # Extract the middle portion (skip BOS, take actual_seq_len tokens)
+                                # Calculate how many special tokens were added
+                                num_special_tokens = esmc_embedding_len - actual_seq_len
+                                
+                                # Debug: print this info once with sequence details
+                                if not hasattr(self, '_esmc_token_debug'):
+                                    print(f"\n[DEBUG] ESMC Token Info:")
+                                    print(f"  Input sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                                    print(f"  Actual sequence length: {actual_seq_len}")
+                                    print(f"  ESMC embeddings length: {esmc_embedding_len}")
+                                    print(f"  Special tokens added: {num_special_tokens}")
+                                    
+                                    # Try to inspect the protein_tensor to see tokens
+                                    if hasattr(protein_tensor, 'sequence'):
+                                        seq_tokens = protein_tensor.sequence
+                                        print(f"  Protein tensor sequence tokens shape: {seq_tokens.shape if hasattr(seq_tokens, 'shape') else 'N/A'}")
+                                        if hasattr(seq_tokens, 'shape') and len(seq_tokens.shape) > 0:
+                                            print(f"  First 10 tokens: {seq_tokens[:10].tolist() if hasattr(seq_tokens[:10], 'tolist') else seq_tokens[:10]}")
+                                    
+                                    print(f"  Features shape after squeeze: {features.shape}")
+                                    self._esmc_token_debug = True
+                                
+                                # ESMC adds special tokens, typically BOS at the start
+                                # If embeddings are longer than sequence, extract the middle portion
+                                if esmc_embedding_len > actual_seq_len:
+                                    # Assuming special tokens are distributed: BOS at start, possibly EOS at end
+                                    # For now, assume 1 BOS token at start (most common case)
+                                    # Extract features[1:actual_seq_len+1] to skip BOS
                                     features = features[1:actual_seq_len+1]
                                 
                                 # Now truncate or pad to the target sequence_length (max length in batch)
