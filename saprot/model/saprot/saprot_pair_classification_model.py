@@ -498,11 +498,20 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         # Debug: print shape before classification head
         if not hasattr(self, '_forward_debug_count'):
             self._forward_debug_count = 0
-        if self._forward_debug_count < 2:
+        if self._forward_debug_count < 5:  # 增加到5次,包含validation
             print(f"\n[DEBUG] Forward pass {self._forward_debug_count + 1}:")
             print(f"  stacked_features.shape: {stacked_features.shape}")
             print(f"  Expected shape: [batch_size, {hidden_size * 2}]")
             print(f"  classification_head first layer input size: {self.classification_head[0].in_features}")
+            # 打印输入来源
+            if "tokens" in inputs_1 and "tokens" in inputs_2:
+                print(f"  Input source: tokens")
+            elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
+                print(f"  Input source: embeddings")
+            elif "sequences" in inputs_1 and "sequences" in inputs_2:
+                print(f"  Input source: sequences")
+            else:
+                print(f"  Input source: unknown/fallback")
             self._forward_debug_count += 1
         
         # 确保分类头在正确的设备和数据类型上
