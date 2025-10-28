@@ -229,6 +229,9 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 # embeddings shape: [seq_len, hidden_dim]
                                 features = logits_output.embeddings
                                 
+                                # Get actual ESMC hidden size from embeddings
+                                esmc_hidden_size = features.shape[-1]
+                                
                                 # Ensure features have correct dtype
                                 features = features.to(device=device, dtype=model_dtype)
                                 
@@ -236,9 +239,15 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 if len(features) > sequence_length:
                                     features = features[:sequence_length]
                                 elif len(features) < sequence_length:
-                                    padding = torch.zeros(sequence_length - len(features), hidden_size, 
+                                    # Use actual ESMC hidden size for padding
+                                    padding = torch.zeros(sequence_length - len(features), esmc_hidden_size, 
                                                         device=device, dtype=model_dtype)
                                     features = torch.cat([features, padding])
+                                
+                                # Update sequence_embeddings tensor size if needed
+                                if sequence_embeddings.shape[-1] != esmc_hidden_size:
+                                    sequence_embeddings = torch.zeros(batch_size, sequence_length, esmc_hidden_size,
+                                                                    device=device, dtype=model_dtype)
                                 
                                 # Store embedding representation
                                 sequence_embeddings[i] = features
