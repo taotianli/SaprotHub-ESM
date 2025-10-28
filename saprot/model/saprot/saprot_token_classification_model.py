@@ -295,8 +295,13 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                         
                         # Process each sequence
                         for i, seq in enumerate(sequences):
+                            # Remove structure tokens (#) from SA sequence if present
+                            # SA sequences have format: "M#T#L#G#R#..." where # are structure tokens
+                            # ESMC only needs pure amino acid sequence
+                            clean_seq = seq.replace('#', '')
+                            
                             # Encode sequence with tokenizer (adds special tokens automatically)
-                            tokens = tokenizer.encode(seq, add_special_tokens=True)
+                            tokens = tokenizer.encode(clean_seq, add_special_tokens=True)
                             tokens_tensor = torch.tensor([tokens], device=device)
                             
                             # Use no_grad only for encoding, not for classification head
@@ -329,8 +334,10 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                             # Debug: print info once
                             if not hasattr(self, '_esmc_token_debug'):
                                 print(f"\n[DEBUG] ESMC Token Info (using tokenizer):")
-                                print(f"  Input sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-                                print(f"  Sequence length: {len(seq)}")
+                                print(f"  Original sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                                print(f"  Original length: {len(seq)}")
+                                print(f"  Cleaned sequence: {clean_seq[:50]}{'...' if len(clean_seq) > 50 else ''}")
+                                print(f"  Cleaned length: {len(clean_seq)}")
                                 print(f"  Encoded tokens length: {len(tokens)}")
                                 print(f"  Token embeddings shape: {features.shape}")
                                 print(f"  First 10 tokens: {tokens[:10]}")
@@ -338,7 +345,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                             
                             # ESMC tokenizer adds BOS and EOS tokens
                             # Remove them to get only sequence embeddings: features[1:-1]
-                            actual_seq_len = len(seq)
+                            actual_seq_len = len(clean_seq)  # Use cleaned sequence length
                             if len(features) > actual_seq_len:
                                 # Skip BOS (first) and EOS (last) tokens
                                 features = features[1:-1]
