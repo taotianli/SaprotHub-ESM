@@ -72,9 +72,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             
             if self.base_model_type == "esmc":
                 hidden_size = 960
+                model_info = "ESMC"
                 print(f"[DEBUG] Using ESMC hidden_size: {hidden_size}")
             else:  # esm3
                 hidden_size = 2560
+                model_info = "ESM3"
                 print(f"[DEBUG] Using ESM3 hidden_size: {hidden_size}")
         else:
             # 回退到自动检测（保留原有逻辑用于兼容性）
@@ -95,6 +97,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 print(f"[DEBUG] Found esm3_model (custom LoRA), type: {type(actual_model).__name__}")
             
             model_type = type(actual_model).__name__
+            model_info = model_type
             print(f"[DEBUG] Final detected model_type: {model_type}")
             
             # 检查是否能找到embed_tokens
@@ -132,7 +135,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
         
-        print(f"✅ Token classifier created with hidden_size={hidden_size} for {model_type}")
+        print(f"✅ Token classifier created with hidden_size={hidden_size} for {model_info}")
         print(f"{'='*60}\n")
     
     def compute_mcc(self, preds, target):
