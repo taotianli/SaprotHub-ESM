@@ -281,7 +281,14 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     use_esmc = (model_type == "esmc")
                 
                 batch_size = len(sequences)
-                sequence_length = max(len(seq) for seq in sequences)
+                
+                # For ESMC, we need to use cleaned sequence length (without # tokens)
+                # For ESM3, we use the original sequence length
+                if use_esmc:
+                    # Calculate max length of cleaned sequences (without #)
+                    sequence_length = max(len(seq.replace('#', '')) for seq in sequences)
+                else:
+                    sequence_length = max(len(seq) for seq in sequences)
                 
                 # 创建一个浮点类型的嵌入表示
                 sequence_embeddings = torch.zeros(batch_size, sequence_length, hidden_size, 
