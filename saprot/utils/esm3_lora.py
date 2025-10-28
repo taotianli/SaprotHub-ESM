@@ -54,7 +54,10 @@ class LoRALinear(nn.Module):
         original_output = self.original_layer(x)
         
         # LoRA output: x @ A^T @ B^T
-        lora_output = x @ self.lora_A.T @ self.lora_B.T * self.scaling
+        # Ensure LoRA parameters have the same dtype as input
+        lora_A = self.lora_A.to(dtype=x.dtype)
+        lora_B = self.lora_B.to(dtype=x.dtype)
+        lora_output = x @ lora_A.T @ lora_B.T * self.scaling
         lora_output = self.dropout(lora_output)
         
         return original_output + lora_output
