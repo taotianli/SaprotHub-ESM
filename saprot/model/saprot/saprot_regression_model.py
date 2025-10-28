@@ -45,8 +45,23 @@ class SimpleRegressionMetrics:
         # 计算皮尔逊相关系数
         vx = preds - torch.mean(preds)
         vy = targets - torch.mean(targets)
-        corr = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
-        return corr.item()
+        
+        # 计算标准差
+        std_x = torch.sqrt(torch.sum(vx ** 2))
+        std_y = torch.sqrt(torch.sum(vy ** 2))
+        
+        # 避免除以零
+        if std_x == 0 or std_y == 0:
+            return 0.0
+        
+        corr = torch.sum(vx * vy) / (std_x * std_y)
+        result = corr.item()
+        
+        # 检查是否为nan
+        if result != result:  # NaN check
+            return 0.0
+        
+        return result
     
     def compute_spearman(self):
         """计算斯皮尔曼相关系数（使用排名）"""
@@ -55,11 +70,19 @@ class SimpleRegressionMetrics:
         preds = torch.cat(self.preds)
         targets = torch.cat(self.targets)
         
+        # Spearman需要至少3个样本才能有效计算
+        if len(preds) < 3:
+            # 对于小样本，返回Pearson相关系数作为替代
+            return self.compute_pearson()
+        
         # 使用numpy计算更准确的spearman
         try:
             from scipy.stats import spearmanr
             corr, _ = spearmanr(preds.numpy(), targets.numpy())
             # 确保返回Python float而不是numpy.float64
+            # 检查是否为nan，如果是则返回0.0
+            if float(corr) != float(corr):  # NaN check (NaN != NaN)
+                return 0.0
             return float(corr)
         except:
             # 如果scipy不可用，返回pearson作为近似
