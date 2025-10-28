@@ -62,26 +62,43 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     
     def _create_classifier(self):
         """创建分类头"""
+        # 调试：打印模型信息
+        print(f"\n{'='*60}")
+        print(f"[DEBUG] Creating Token Classifier")
+        print(f"[DEBUG] self.model type: {type(self.model).__name__}")
+        print(f"[DEBUG] self.model has base_model: {hasattr(self.model, 'base_model')}")
+        
         # 判断是ESMC还是ESM3模型
         # 需要检查实际的base_model（可能被LoRA包装）
         actual_model = self.model
         if hasattr(self.model, 'base_model'):
             actual_model = self.model.base_model
+            print(f"[DEBUG] base_model type: {type(actual_model).__name__}")
         
         model_type = type(actual_model).__name__
+        print(f"[DEBUG] Detected model_type: {model_type}")
+        
+        # 检查是否能找到embed_tokens
+        print(f"[DEBUG] self.model has embed_tokens: {hasattr(self.model, 'embed_tokens')}")
+        if hasattr(self.model, 'embed_tokens'):
+            print(f"[DEBUG] embed_tokens shape: {self.model.embed_tokens.weight.shape}")
         
         if "ESMC" in model_type:
             # ESMC模型使用960维
             hidden_size = 960
+            print(f"[DEBUG] Using ESMC hidden_size: {hidden_size}")
         elif hasattr(self.model, 'embed_tokens'):
             # ESM3模型从embed_tokens获取维度
             hidden_size = self.model.embed_tokens.weight.shape[1]
+            print(f"[DEBUG] Using ESM3 hidden_size from embed_tokens: {hidden_size}")
         else:
             # 默认ESM3的标准隐藏维度
             hidden_size = 2560
+            print(f"[DEBUG] Using default hidden_size: {hidden_size}")
         
         # 获取模型的数据类型
         model_dtype = next(self.model.parameters()).dtype
+        print(f"[DEBUG] Model dtype: {model_dtype}")
         
         # 创建分类头，确保使用正确的隐藏维度
         self.classifier = torch.nn.Sequential(
@@ -97,6 +114,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
         
         print(f"✅ Token classifier created with hidden_size={hidden_size} for {model_type}")
+        print(f"{'='*60}\n")
     
     def compute_mcc(self, preds, target):
         tp = (preds * target).sum()
@@ -123,12 +141,30 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             actual_model = self.model.base_model
         
         model_type = type(actual_model).__name__
+        
+        # 调试：第一次forward时打印
+        if not hasattr(self, '_forward_debug_printed'):
+            print(f"\n{'='*60}")
+            print(f"[DEBUG] Token Classification Forward")
+            print(f"[DEBUG] model_type: {model_type}")
+            self._forward_debug_printed = True
+        
         if "ESMC" in model_type:
             hidden_size = 960  # ESMC模型使用960维
+            if not hasattr(self, '_forward_debug_printed2'):
+                print(f"[DEBUG] Forward using ESMC hidden_size: {hidden_size}")
+                self._forward_debug_printed2 = True
         elif hasattr(self.model, 'embed_tokens'):
             hidden_size = self.model.embed_tokens.weight.shape[1]
+            if not hasattr(self, '_forward_debug_printed2'):
+                print(f"[DEBUG] Forward using ESM3 hidden_size: {hidden_size}")
+                self._forward_debug_printed2 = True
         else:
             hidden_size = 2560  # ESM3的标准隐藏维度
+            if not hasattr(self, '_forward_debug_printed2'):
+                print(f"[DEBUG] Forward using default hidden_size: {hidden_size}")
+                print(f"{'='*60}\n")
+                self._forward_debug_printed2 = True
         
         # 处理不同类型的输入
         if inputs is None and sequences is not None:
