@@ -116,15 +116,17 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotRegressionModel(SaprotBaseModel):
-    def __init__(self, test_result_path: str = None, fixed_seq_length: int = 2048, **kwargs):
+    def __init__(self, test_result_path: str = None, fixed_seq_length: int = 2048, base_model_type: str = None, **kwargs):
         """
         Args:
             test_result_path: path to save test result
             fixed_seq_length: 固定序列长度，用于截断或padding
+            base_model_type: 'esm3' or 'esmc', explicitly specify model type
             **kwargs: other arguments for SaprotBaseModel
         """
         self.test_result_path = test_result_path
         self.fixed_seq_length = fixed_seq_length
+        self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="regression", **kwargs)
         
         # 创建固定维度的回归头

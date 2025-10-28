@@ -39,15 +39,17 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotClassificationModel(SaprotBaseModel):
-    def __init__(self, num_labels: int, fixed_seq_length: int = 2048, **kwargs):
+    def __init__(self, num_labels: int, fixed_seq_length: int = 2048, base_model_type: str = None, **kwargs):
         """
         Args:
             num_labels: number of labels
             fixed_seq_length: 固定序列长度，用于截断或padding
+            base_model_type: 'esm3' or 'esmc', explicitly specify model type
             **kwargs: other arguments for SaprotBaseModel
         """
         self.num_labels = num_labels
         self.fixed_seq_length = fixed_seq_length
+        self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="classification", **kwargs)
         
         # 创建固定维度的分类头
