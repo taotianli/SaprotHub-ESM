@@ -309,6 +309,9 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 # Process sequences using ESMC
                 from esm.sdk.api import ESMProtein, LogitsConfig
                 
+                # Get actual ESMC hidden size from first sequence
+                esmc_hidden_size = None
+                
                 for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
                     try:
                         # Encode first sequence
@@ -330,19 +333,27 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                         if hasattr(logits_output_1, 'embeddings') and logits_output_1.embeddings is not None and \
                            hasattr(logits_output_2, 'embeddings') and logits_output_2.embeddings is not None:
                             # embeddings shape: [seq_len, hidden_dim]
-                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [hidden_size]
-                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [hidden_size]
+                            # Get actual hidden size from embeddings
+                            if esmc_hidden_size is None:
+                                esmc_hidden_size = logits_output_1.embeddings.shape[-1]
+                            
+                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
+                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
                         else:
-                            feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
-                            feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            # Use actual ESMC hidden size if available, otherwise use detected size
+                            actual_hidden_size = esmc_hidden_size if esmc_hidden_size is not None else 960
+                            feature_1 = torch.zeros(actual_hidden_size, device=device, dtype=model_dtype)
+                            feature_2 = torch.zeros(actual_hidden_size, device=device, dtype=model_dtype)
                             features_1.append(feature_1)
                             features_2.append(feature_2)
                     except Exception as e:
-                        feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
-                        feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        # Use actual ESMC hidden size if available, otherwise use detected size
+                        actual_hidden_size = esmc_hidden_size if esmc_hidden_size is not None else 960
+                        feature_1 = torch.zeros(actual_hidden_size, device=device, dtype=model_dtype)
+                        feature_2 = torch.zeros(actual_hidden_size, device=device, dtype=model_dtype)
                         features_1.append(feature_1)
                         features_2.append(feature_2)
             else:
