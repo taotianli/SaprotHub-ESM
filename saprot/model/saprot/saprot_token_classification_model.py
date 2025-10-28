@@ -319,7 +319,18 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                                 # Ensure features have correct dtype
                                 features = features.to(device=device, dtype=model_dtype)
                                 
-                                # Truncate or pad to correct length
+                                # IMPORTANT: ESMC embeddings include special tokens (BOS, EOS, etc.)
+                                # The actual sequence length is len(seq), but embeddings might be longer
+                                # We need to extract only the embeddings corresponding to the actual sequence
+                                actual_seq_len = len(seq)
+                                
+                                # ESMC typically adds BOS token at the start
+                                # So embeddings[1:actual_seq_len+1] corresponds to the actual sequence
+                                if len(features) > actual_seq_len:
+                                    # Extract the middle portion (skip BOS, take actual_seq_len tokens)
+                                    features = features[1:actual_seq_len+1]
+                                
+                                # Now truncate or pad to the target sequence_length (max length in batch)
                                 if len(features) > sequence_length:
                                     features = features[:sequence_length]
                                 elif len(features) < sequence_length:
