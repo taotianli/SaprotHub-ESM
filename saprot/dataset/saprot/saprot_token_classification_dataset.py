@@ -91,27 +91,44 @@ class SaprotTokenClassificationDataset(LMDBDataset):
     def __getitem__(self, index):
         entry = json.loads(self._get(index))
         seq = entry['seq'][:self.max_length-2]
-        label = entry["label"][:self.max_length-2]
+        # 注意: label 不应该用 seq 的长度来截断!
+        # 因为 seq 可能包含#,长度是氨基酸的2倍,而 label 只对应氨基酸
+        label = entry["label"]  # 保持原始长度
 
         # Convert sequence to string format for ESM3
         if isinstance(seq, list):
             seq = "".join(seq)
         
-        # 如果序列包含结构标记(#),需要清理标签,只保留对应氨基酸位置的标签
-        # 因为ESM3/ESMC模型只处理氨基酸序列,不包括#
+        # Debug: Print original data for first item
+        if not hasattr(self, '_debug_printed'):
+            print(f"\n[DATASET DEBUG] First item:")
+            print(f"  entry['seq'] type: {type(entry['seq'])}")
+            print(f"  entry['label'] type: {type(entry['label'])}")
+            print(f"  Original seq length: {len(seq)}")
+            print(f"  Original label length: {len(label)}")
+            print(f"  Seq contains #: {'#' in seq}")
+            print(f"  First 50 chars of seq: {seq[:50]}")
+            if isinstance(label, list) and len(label) > 0:
+                print(f"  First 10 labels: {label[:10]}")
+            self._debug_printed = True
+        
+        # 重要发现: 数据源中 entry['seq'] 可能是 "M#T#L#..." 格式 (带#的foldseek序列)
+        # 而 entry['label'] 只对应氨基酸位置,不包括#位置
+        # 所以当 seq 包含 # 时,我们需要清理序列,但标签已经是正确的了!
         if '#' in seq:
-            # 找到所有非#位置
-            keep_positions = [i for i, char in enumerate(seq) if char != '#']
-            # 只保留这些位置的标签
-            if isinstance(label, list):
-                label = [label[i] for i in keep_positions if i < len(label)]
-            else:
-                # 如果label是其他格式,尝试转换
-                label = list(label) if hasattr(label, '__iter__') else [label]
-                label = [label[i] for i in keep_positions if i < len(label)]
-            
-            # 同时清理序列,移除#标记
+            # 只需要清理序列,移除#标记
+            # 标签已经只对应氨基酸位置,不需要额外处理
             seq = seq.replace('#', '')
+        
+        # 现在 seq 是纯氨基酸序列,确保 label 长度匹配
+        # 如果需要截断,基于清理后的序列长度
+        if len(label) > len(seq):
+            label = label[:len(seq)]
+        elif len(label) < len(seq):
+            # 如果标签比序列短,可能需要padding (但这应该是数据问题)
+            print(f"[WARNING] Label length ({len(label)}) < sequence length ({len(seq)})")
+            # 暂时用-1 padding
+            label = list(label) + [-1] * (len(seq) - len(label))
 
         # 始终使用ESM3编码
         try:
