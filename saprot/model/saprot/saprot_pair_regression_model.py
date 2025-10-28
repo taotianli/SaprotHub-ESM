@@ -154,12 +154,17 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         """初始化ESM3模型和回归头"""
         super().initialize_model()
         
-        # 获取ESM3模型的隐藏维度
-        # ESM3模型没有config属性，需要从模型结构中获取hidden_size
-        if hasattr(self.model, 'embed_tokens'):
+        # 判断是ESMC还是ESM3模型
+        model_type = type(self.model).__name__
+        
+        if "ESMC" in model_type:
+            # ESMC模型使用960维
+            hidden_size = 960
+        elif hasattr(self.model, 'embed_tokens'):
+            # ESM3模型从embed_tokens获取维度
             hidden_size = self.model.embed_tokens.weight.shape[1]
         else:
-            # 如果无法获取，使用默认值2560（ESM3的标准隐藏维度）
+            # 默认ESM3的标准隐藏维度
             hidden_size = 2560
         
         # 对于pair回归，我们需要两倍的hidden_size，因为要处理两个序列
@@ -176,6 +181,8 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 确保回归头参数可训练
         for param in self.regression_head.parameters():
             param.requires_grad = True
+        
+        print(f"✅ Pair regressor created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()

@@ -62,16 +62,23 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     
     def _create_classifier(self):
         """创建分类头"""
-        # 获取ESM3模型的隐藏维度和数据类型
-        if hasattr(self.model, 'embed_tokens'):
+        # 判断是ESMC还是ESM3模型
+        model_type = type(self.model).__name__
+        
+        if "ESMC" in model_type:
+            # ESMC模型使用960维
+            hidden_size = 960
+        elif hasattr(self.model, 'embed_tokens'):
+            # ESM3模型从embed_tokens获取维度
             hidden_size = self.model.embed_tokens.weight.shape[1]
         else:
-            hidden_size = 2560  # ESM3的标准隐藏维度
+            # 默认ESM3的标准隐藏维度
+            hidden_size = 2560
         
         # 获取模型的数据类型
         model_dtype = next(self.model.parameters()).dtype
         
-        # 创建分类头，确保使用与ESM3模型相同的数据类型
+        # 创建分类头，确保使用正确的隐藏维度
         self.classifier = torch.nn.Sequential(
             torch.nn.Dropout(0.1),
             torch.nn.Linear(hidden_size, hidden_size, dtype=model_dtype),
@@ -83,6 +90,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         # 确保分类头在正确的设备上
         device = next(self.model.parameters()).device
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
+        
+        print(f"✅ Token classifier created with hidden_size={hidden_size} for {model_type}")
     
     def compute_mcc(self, preds, target):
         tp = (preds * target).sum()
@@ -102,8 +111,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # 获取ESM3模型的隐藏维度
-        if hasattr(self.model, 'embed_tokens'):
+        # 判断是ESMC还是ESM3模型，获取对应的隐藏维度
+        model_type = type(self.model).__name__
+        if "ESMC" in model_type:
+            hidden_size = 960  # ESMC模型使用960维
+        elif hasattr(self.model, 'embed_tokens'):
             hidden_size = self.model.embed_tokens.weight.shape[1]
         else:
             hidden_size = 2560  # ESM3的标准隐藏维度
