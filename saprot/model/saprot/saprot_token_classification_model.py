@@ -498,10 +498,12 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
         
-        # If we used ESMC and have saved sequences, clean the labels
+        # Note: Labels from dataset are already in amino acid positions (not including #)
+        # So we DON'T need to clean them for ESMC
+        # The label length already matches the cleaned sequence length
         if hasattr(self, '_current_sequences') and self._current_sequences is not None:
-            label = self._clean_labels_for_esmc(label, self._current_sequences)
-            self._current_sequences = None  # Clear after use
+            # Just clear the saved sequences, no cleaning needed
+            self._current_sequences = None
         
         # Debug: print shapes before processing
         if not hasattr(self, '_loss_shape_printed'):
