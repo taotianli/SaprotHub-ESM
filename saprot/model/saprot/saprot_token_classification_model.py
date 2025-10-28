@@ -389,10 +389,24 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     f"Got input keys: {available_keys}"
                 )
         
+        # Debug: print shapes before returning
+        if not hasattr(self, '_forward_shape_printed'):
+            print(f"\n[DEBUG] Forward output shapes:")
+            print(f"  logits.shape: {logits.shape}")
+            self._forward_shape_printed = True
+        
         return logits
     
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
+        
+        # Debug: print shapes before processing
+        if not hasattr(self, '_loss_shape_printed'):
+            print(f"\n[DEBUG] Loss function input shapes:")
+            print(f"  logits.shape: {logits.shape}")
+            print(f"  label.shape: {label.shape}")
+            self._loss_shape_printed = True
+        
         # Flatten the logits and labels
         logits = logits.view(-1, self.num_labels)
         label = label.view(-1)
