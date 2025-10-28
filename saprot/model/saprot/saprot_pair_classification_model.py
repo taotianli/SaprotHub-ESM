@@ -307,16 +307,21 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                     
                     # 连接两个序列的特征
                     stacked_features = torch.cat([features_1, features_2], dim=1)  # [batch_size, hidden_size*2]
+                    print(f"[DEBUG-TOKENS-BRANCH] Created stacked_features: {stacked_features.shape}")
                 else:
                     batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                     stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
+                    print(f"[DEBUG-TOKENS-ELSE] Created zero stacked_features: {stacked_features.shape}")
                 
             except Exception as e:
+                print(f"[DEBUG-TOKENS-EXCEPTION] Exception in tokens branch: {e}")
                 batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
+                print(f"[DEBUG-TOKENS-EXCEPTION] Created zero stacked_features: {stacked_features.shape}")
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
+            print(f"[DEBUG-EMBEDDINGS] Using embeddings branch")
             embeddings_1 = inputs_1["embeddings"].to(device=device, dtype=model_dtype)
             embeddings_2 = inputs_2["embeddings"].to(device=device, dtype=model_dtype)
             
@@ -347,8 +352,10 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 embeddings_2 = torch.zeros(batch_size, hidden_size, device=device, dtype=model_dtype)
                 
             stacked_features = torch.cat([embeddings_1, embeddings_2], dim=1)  # [batch_size, hidden_size*2]
+            print(f"[DEBUG-EMBEDDINGS] Created stacked_features: {stacked_features.shape}")
         
         elif "sequences" in inputs_1 and "sequences" in inputs_2:
+            print(f"[DEBUG-SEQUENCES] Using sequences branch")
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
@@ -484,13 +491,17 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 stacked_features_1 = torch.stack(features_1)  # [batch_size, hidden_size]
                 stacked_features_2 = torch.stack(features_2)  # [batch_size, hidden_size]
                 stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)  # [batch_size, hidden_size*2]
+                print(f"[DEBUG-SEQUENCES] Created stacked_features: {stacked_features.shape}")
             else:
                 batch_size = 1
                 stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
+                print(f"[DEBUG-SEQUENCES-EMPTY] Created zero stacked_features: {stacked_features.shape}")
         
         else:
+            print(f"[DEBUG-FALLBACK] Using fallback branch - no valid input found")
             batch_size = 1
             stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
+            print(f"[DEBUG-FALLBACK] Created zero stacked_features: {stacked_features.shape}")
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
