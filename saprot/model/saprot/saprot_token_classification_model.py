@@ -280,6 +280,12 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                     model_type = getattr(self, 'model_type', 'esm3')
                     use_esmc = (model_type == "esmc")
                 
+                # Save sequences for label cleaning if using ESMC
+                if use_esmc:
+                    self._current_sequences = sequences
+                else:
+                    self._current_sequences = None
+                
                 batch_size = len(sequences)
                 
                 # For ESMC, we need to use cleaned sequence length (without # tokens)
@@ -436,8 +442,46 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         
         return logits
     
+    def _clean_labels_for_esmc(self, labels_batch, sequences):
+        """
+        Clean labels to match ESMC processed sequences.
+        Remove labels corresponding to structure tokens (#) in SA sequences.
+        
+        Args:
+            labels_batch: [batch_size, orig_seq_length] - original labels
+            sequences: list of original sequences
+        Returns:
+            cleaned_labels: [batch_size, clean_seq_length] - labels without # positions
+        """
+        cleaned_labels_list = []
+        for label_seq, orig_seq in zip(labels_batch, sequences):
+            # Find positions without # in the original sequence
+            keep_positions = [i for i, char in enumerate(orig_seq) if char != '#']
+            # Extract labels only at those positions
+            if len(keep_positions) < len(label_seq):
+                cleaned_label = label_seq[keep_positions]
+            else:
+                cleaned_label = label_seq
+            cleaned_labels_list.append(cleaned_label)
+        
+        # Pad to same length
+        max_len = max(len(l) for l in cleaned_labels_list)
+        padded_labels = []
+        for l in cleaned_labels_list:
+            if len(l) < max_len:
+                padding = torch.full((max_len - len(l),), -1, dtype=l.dtype, device=l.device)
+                l = torch.cat([l, padding])
+            padded_labels.append(l)
+        
+        return torch.stack(padded_labels)
+    
     def loss_func(self, stage, logits, labels):
         label = labels['labels']
+        
+        # If we used ESMC and have saved sequences, clean the labels
+        if hasattr(self, '_current_sequences') and self._current_sequences is not None:
+            label = self._clean_labels_for_esmc(label, self._current_sequences)
+            self._current_sequences = None  # Clear after use
         
         # Debug: print shapes before processing
         if not hasattr(self, '_loss_shape_printed'):
