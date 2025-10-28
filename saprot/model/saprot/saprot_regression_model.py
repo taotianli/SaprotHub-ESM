@@ -688,49 +688,49 @@ class SaprotRegressionModel(SaprotBaseModel):
                 return
         
         if not os.path.exists(checkpoint_path):
-            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            print(f"❌ Weight file does not exist: {checkpoint_path}")
             return
         
         try:
-            # 加载权重
+            # Load weights
             state_dict = torch.load(checkpoint_path, map_location='cpu')
             
-            # 验证是否为回归头权重文件
+            # Verify if this is a regression head weight file
             if "regression_head" in state_dict:
-                # 新格式：包含回归头（和可能的LoRA权重）
+                # New format: contains regression head (and possibly LoRA weights)
                 regression_head_state = state_dict["regression_head"]
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                print(f"🔍 加载权重:")
-                print(f"  - 文件: {checkpoint_path}")
-                print(f"  - 序列长度: {fixed_seq_length}")
+                # print(f"🔍 Loading weights:")
+                # print(f"  - File: {checkpoint_path}")
+                # print(f"  - Sequence length: {fixed_seq_length}")
                 
-                # 验证维度匹配
+                # Verify dimension matching
                 if fixed_seq_length == self.fixed_seq_length:
                     self.regression_head.load_state_dict(regression_head_state)
-                    print(f"✅ 回归头权重加载成功")
+                    # print(f"✅ Regression head weights loaded successfully")
                     
-                    # 检查是否有LoRA权重
+                    # Check if there are LoRA weights
                     if "lora" in state_dict:
                         from saprot.utils.esm3_lora import ESM3LoRAWrapper
                         if isinstance(self.model, ESM3LoRAWrapper):
                             lora_state = state_dict["lora"]
                             lora_config = state_dict.get("lora_config", {})
                             
-                            print(f"🔍 加载LoRA权重:")
-                            print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
-                            print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
+                            # print(f"🔍 Loading LoRA weights:")
+                            # print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
+                            # print(f"  - LoRA parameters: {sum(p.numel() for p in lora_state.values()):,}")
                             
                             self.model.load_lora_state_dict(lora_state)
-                            print(f"✅ LoRA权重加载成功")
+                            # print(f"✅ LoRA weights loaded successfully")
                         else:
-                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                            print(f"⚠️ Checkpoint contains LoRA weights, but current model does not have LoRA enabled")
                     
                 else:
-                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
+                    print(f"❌ Dimension mismatch: expected({self.fixed_seq_length}, 1), got({fixed_seq_length}, 1)")
                     
             elif "model" in state_dict and any("regression_head" in k for k in state_dict["model"].keys()):
-                # 旧格式：包含整个模型，提取回归头部分
+                # Old format: contains full model, extract regression head
                 model_state = state_dict["model"]
                 regression_head_state = {
                     k.replace("regression_head.", ""): v 
@@ -739,14 +739,14 @@ class SaprotRegressionModel(SaprotBaseModel):
                 }
                 if regression_head_state:
                     self.regression_head.load_state_dict(regression_head_state)
-                    print(f"✅ 从完整模型权重中提取并加载回归头")
+                    # print(f"✅ Extracted and loaded regression head from full model weights")
                 else:
-                    print(f"❌ 在模型权重中未找到回归头参数")
+                    print(f"❌ Regression head parameters not found in model weights")
             else:
                 print(f"Unrecognized weight file format")
                 
         except Exception as e:
-            print(f"❌ 加载回归头权重失败: {str(e)}")
+            print(f"❌ Failed to load regression head weights: {str(e)}")
 
     def on_validation_epoch_end(self):
         # 打印回归头权重信息
