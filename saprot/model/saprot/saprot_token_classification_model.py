@@ -453,10 +453,28 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         Returns:
             cleaned_labels: [batch_size, clean_seq_length] - labels without # positions
         """
+        # Debug info
+        if not hasattr(self, '_clean_labels_debug'):
+            print(f"\n[DEBUG] Cleaning labels for ESMC:")
+            print(f"  Original labels_batch shape: {labels_batch.shape}")
+            print(f"  Number of sequences: {len(sequences)}")
+            if len(sequences) > 0:
+                print(f"  First sequence length: {len(sequences[0])}")
+                print(f"  First sequence sample: {sequences[0][:50]}...")
+            self._clean_labels_debug = True
+        
         cleaned_labels_list = []
-        for label_seq, orig_seq in zip(labels_batch, sequences):
+        for i, (label_seq, orig_seq) in enumerate(zip(labels_batch, sequences)):
             # Find positions without # in the original sequence
-            keep_positions = [i for i, char in enumerate(orig_seq) if char != '#']
+            keep_positions = [j for j, char in enumerate(orig_seq) if char != '#']
+            
+            # Debug first sequence
+            if i == 0 and not hasattr(self, '_clean_labels_detail_debug'):
+                print(f"  First label_seq length: {len(label_seq)}")
+                print(f"  Number of keep positions: {len(keep_positions)}")
+                print(f"  Keep positions (first 10): {keep_positions[:10]}")
+                self._clean_labels_detail_debug = True
+            
             # Extract labels only at those positions
             if len(keep_positions) > 0 and len(keep_positions) <= len(label_seq):
                 # Use advanced indexing to extract labels
@@ -490,8 +508,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
             print(f"\n[DEBUG] Loss function input shapes:")
             print(f"  logits.shape: {logits.shape}")
             print(f"  label.shape: {label.shape}")
-            print(f"  label min/max: {label.min().item()}/{label.max().item()}")
+            # Move to CPU to safely get min/max
+            label_cpu = label.cpu()
+            print(f"  label min/max: {label_cpu.min().item()}/{label_cpu.max().item()}")
             print(f"  num_labels: {self.num_labels}")
+            print(f"  label unique values: {torch.unique(label_cpu).tolist()}")
             self._loss_shape_printed = True
         
         # Flatten the logits and labels
