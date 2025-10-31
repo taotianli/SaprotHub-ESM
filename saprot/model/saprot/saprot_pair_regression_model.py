@@ -418,6 +418,9 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
+            print(f"[DEBUG sequences] Processing sequences, len(sequences_1): {len(sequences_1)}, len(sequences_2): {len(sequences_2)}")
+            print(f"[DEBUG sequences] Type of sequences_1[0]: {type(sequences_1[0])}")
+            
             # Check if model is ESMC or ESM3
             # 优先使用显式传递的base_model_type参数
             if hasattr(self, 'base_model_type') and self.base_model_type:
@@ -427,17 +430,21 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 model_class_name = type(self.model).__name__
                 use_esmc = ("ESMC" in model_class_name)
             
+            print(f"[DEBUG sequences] use_esmc: {use_esmc}, base_model_type: {getattr(self, 'base_model_type', 'None')}")
+            
             features_1 = []
             features_2 = []
             
             if use_esmc:
                 # Process sequences using ESMC
+                print(f"[DEBUG sequences] Entering ESMC branch")
                 from esm.sdk.api import ESMProtein, LogitsConfig
                 
                 # Get actual ESMC hidden size from first sequence
                 esmc_hidden_size = None
                 
                 for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
+                    print(f"[DEBUG sequences ESMC] Processing pair {i}, seq_1 len: {len(seq_1) if isinstance(seq_1, str) else 'not string'}, seq_2 len: {len(seq_2) if isinstance(seq_2, str) else 'not string'}")
                     try:
                         # Encode first sequence
                         protein_1 = ESMProtein(sequence=seq_1)
@@ -462,8 +469,12 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                             if esmc_hidden_size is None:
                                 esmc_hidden_size = logits_output_1.embeddings.shape[-1]
                             
+                            print(f"[DEBUG sequences ESMC] Got embeddings, shape_1: {logits_output_1.embeddings.shape}, shape_2: {logits_output_2.embeddings.shape}")
+                            
                             seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
                             seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
+                            
+                            print(f"[DEBUG sequences ESMC] After mean, shape_1: {seq_feature_1.shape}, shape_2: {seq_feature_2.shape}")
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
@@ -546,11 +557,17 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                         features_1.append(feature_1)
                         features_2.append(feature_2)
             
+            print(f"[DEBUG sequences] After processing, len(features_1): {len(features_1)}, len(features_2): {len(features_2)}")
             if features_1 and features_2:
+                print(f"[DEBUG sequences] features_1[0] shape: {features_1[0].shape if len(features_1) > 0 else 'empty'}")
+                print(f"[DEBUG sequences] features_2[0] shape: {features_2[0].shape if len(features_2) > 0 else 'empty'}")
                 stacked_features_1 = torch.stack(features_1)  # [batch_size, hidden_size]
                 stacked_features_2 = torch.stack(features_2)  # [batch_size, hidden_size]
+                print(f"[DEBUG sequences] stacked_features_1 shape: {stacked_features_1.shape}, stacked_features_2 shape: {stacked_features_2.shape}")
                 stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)  # [batch_size, hidden_size*2]
+                print(f"[DEBUG sequences] Final stacked_features shape after cat: {stacked_features.shape}")
             else:
+                print(f"[DEBUG sequences] features lists are empty, creating zero tensor")
                 batch_size = 1
                 stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
         
