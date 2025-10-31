@@ -464,15 +464,29 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                         
                         if hasattr(logits_output_1, 'embeddings') and logits_output_1.embeddings is not None and \
                            hasattr(logits_output_2, 'embeddings') and logits_output_2.embeddings is not None:
-                            # embeddings shape: [seq_len, hidden_dim]
+                            # embeddings shape: [batch_size, seq_len, hidden_dim] or [seq_len, hidden_dim]
                             # Get actual hidden size from embeddings
                             if esmc_hidden_size is None:
                                 esmc_hidden_size = logits_output_1.embeddings.shape[-1]
                             
                             print(f"[DEBUG sequences ESMC] Got embeddings, shape_1: {logits_output_1.embeddings.shape}, shape_2: {logits_output_2.embeddings.shape}")
                             
-                            seq_feature_1 = logits_output_1.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
-                            seq_feature_2 = logits_output_2.embeddings.mean(dim=0).float()  # [esmc_hidden_size]
+                            # 处理可能的batch维度
+                            emb_1 = logits_output_1.embeddings
+                            emb_2 = logits_output_2.embeddings
+                            
+                            # 如果是3D (batch_size, seq_len, hidden)，先去掉batch维度或对序列维度取平均
+                            if emb_1.dim() == 3:
+                                # 对序列维度(dim=1)取平均，然后squeeze掉batch维度
+                                seq_feature_1 = emb_1.mean(dim=1).squeeze(0).float()  # [esmc_hidden_size]
+                            else:
+                                # 如果是2D (seq_len, hidden)，对序列维度(dim=0)取平均
+                                seq_feature_1 = emb_1.mean(dim=0).float()  # [esmc_hidden_size]
+                            
+                            if emb_2.dim() == 3:
+                                seq_feature_2 = emb_2.mean(dim=1).squeeze(0).float()  # [esmc_hidden_size]
+                            else:
+                                seq_feature_2 = emb_2.mean(dim=0).float()  # [esmc_hidden_size]
                             
                             print(f"[DEBUG sequences ESMC] After mean, shape_1: {seq_feature_1.shape}, shape_2: {seq_feature_2.shape}")
                             
