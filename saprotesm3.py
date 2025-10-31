@@ -2119,9 +2119,9 @@ def generate_embeddings(protein_list, model_type, model_arg):
 
   else:
     # 处理PDB结构文件
-    def do(process_id, idx, path, writer):
-      sequence, coordinates = read_pdb_simple(path)
-      coordinates = preprocess_coordinates(coordinates)
+    def do(process_id, idx, path, writer, chain_id="A"):
+      # 使用ESM3的方式读取PDB文件
+      sequence, coordinates = read_pdb_simple(path, chain_id=chain_id)
 
       # 加载ESM3模型
       model = load_embedding_generation_model(model_type, model_arg)
@@ -2352,7 +2352,7 @@ def choose_training_task():
   dataset_hint = HTML(markdown.markdown("### Dataset setting:"))
   data_type_hint = HTML(markdown.markdown("**Your training data type:**"))
   data_type = ipywidgets.RadioButtons(
-      options=['protein sequence'],  # 'protein structure' 暂时注释掉
+      options=['protein sequence', 'protein structure'],
       disabled=False,
       style={'description_width': 'initial'},
       )
@@ -2948,33 +2948,48 @@ def choose_training_task():
             else:
                 raise e
 
-        if "Protein-protein" not in task_type.value:
-          pdbs = []
-          for pdb_name, chain in df[["protein", "chain"]].values:
-            pdb_path = f"{struc_dir}/{pdb_name}"
-            pdbs.append([pdb_path, chain])
-
-          sa_seqs = pdb2sa(pdbs)
-          df["protein"] = sa_seqs
-
+        # 对于ESM3模型，保存PDB路径和chain信息，不转换为SA序列
+        # 对于其他模型，使用foldseek转换为SA序列
+        if model_type_value in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+          # ESM3模型：保存PDB路径
+          if "Protein-protein" not in task_type.value:
+            # 保存完整的PDB路径
+            df["pdb_path"] = df["protein"].apply(lambda x: f"{struc_dir}/{x}")
+            df["protein"] = df["protein"]  # 保持原PDB文件名
+          else:
+            df["pdb_path_1"] = df["protein_1"].apply(lambda x: f"{struc_dir}/{x}")
+            df["pdb_path_2"] = df["protein_2"].apply(lambda x: f"{struc_dir}/{x}")
+            df["protein_1"] = df["protein_1"]  # 保持原PDB文件名
+            df["protein_2"] = df["protein_2"]  # 保持原PDB文件名
         else:
-          pdbs = []
-          for pdb_name, chain in df[["protein_1", "chain_1"]].values:
-            pdb_path = f"{struc_dir}/{pdb_name}"
-            pdbs.append([pdb_path, chain])
+          # 其他模型：使用foldseek转换为SA序列
+          if "Protein-protein" not in task_type.value:
+            pdbs = []
+            for pdb_name, chain in df[["protein", "chain"]].values:
+              pdb_path = f"{struc_dir}/{pdb_name}"
+              pdbs.append([pdb_path, chain])
 
-          sa_seqs = pdb2sa(pdbs)
-          df["name_1"] = df["protein_1"]
-          df["protein_1"] = sa_seqs
+            sa_seqs = pdb2sa(pdbs)
+            df["protein"] = sa_seqs
 
-          pdbs = []
-          for pdb_name, chain in df[["protein_2", "chain_2"]].values:
-            pdb_path = f"{struc_dir}/{pdb_name}"
-            pdbs.append([pdb_path, chain])
+          else:
+            pdbs = []
+            for pdb_name, chain in df[["protein_1", "chain_1"]].values:
+              pdb_path = f"{struc_dir}/{pdb_name}"
+              pdbs.append([pdb_path, chain])
 
-          sa_seqs = pdb2sa(pdbs)
-          df["name_2"] = df["protein_2"]
-          df["protein_2"] = sa_seqs
+            sa_seqs = pdb2sa(pdbs)
+            df["name_1"] = df["protein_1"]
+            df["protein_1"] = sa_seqs
+
+            pdbs = []
+            for pdb_name, chain in df[["protein_2", "chain_2"]].values:
+              pdb_path = f"{struc_dir}/{pdb_name}"
+              pdbs.append([pdb_path, chain])
+
+            sa_seqs = pdb2sa(pdbs)
+            df["name_2"] = df["protein_2"]
+            df["protein_2"] = sa_seqs
 
         tmp_path = f"{csv_path}.tmp"
         os.system(f"cp {csv_path} {tmp_path}")
@@ -3626,7 +3641,7 @@ def protein_property_prediction():
 
   data_type_hint = HTML(markdown.markdown("### Uploaded data type:"))
   data_type_box = ipywidgets.RadioButtons(
-      options=['protein sequence'],  # 'protein structure' 暂时注释掉
+      options=['protein sequence', 'protein structure'],
       value="protein sequence",
       disabled=False,
       style={'description_width': 'initial'},
@@ -3981,11 +3996,17 @@ def protein_property_prediction():
       assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
       chain = input_chain_1.value
-      sa_seq = get_struc_seq(FOLDSEEK_PATH, pdb_path, chains=[chain], plddt_mask=True)[chain][-1]
-      rows.append(sa_seq)
-
-      df = pd.DataFrame(columns=["protein"])
-      df = df._append({"protein": name}, ignore_index=True)
+      
+      # ESM3模型不需要转换为SA序列，直接保存PDB路径
+      if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+        df = pd.DataFrame(columns=["protein", "chain", "pdb_path"])
+        df = df._append({"protein": name, "chain": chain, "pdb_path": pdb_path}, ignore_index=True)
+        rows.append(name)  # 用于显示
+      else:
+        sa_seq = get_struc_seq(FOLDSEEK_PATH, pdb_path, chains=[chain], plddt_mask=True)[chain][-1]
+        rows.append(sa_seq)
+        df = pd.DataFrame(columns=["protein"])
+        df = df._append({"protein": name}, ignore_index=True)
 
     elif "Protein-protein" not in task_type and data_type == "protein structure" and upload_type == "Multiple files":
       csv_path = get_upload_file_path(upload_items_1)
@@ -4011,11 +4032,17 @@ def protein_property_prediction():
           struc_dir = file_path
 
       df = pd.read_csv(csv_path)
-      pdbs = []
-      for pdb_name, chain in df[["protein", "chain"]].values:
-        pdb_path = f"{struc_dir}/{pdb_name}"
-        pdbs.append([pdb_path, chain])
-      rows = pdb2sa(pdbs)
+      
+      # ESM3模型不需要转换为SA序列，直接保存PDB路径
+      if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+        df["pdb_path"] = df["protein"].apply(lambda x: f"{struc_dir}/{x}")
+        rows = df["protein"].tolist()  # 用于显示
+      else:
+        pdbs = []
+        for pdb_name, chain in df[["protein", "chain"]].values:
+          pdb_path = f"{struc_dir}/{pdb_name}"
+          pdbs.append([pdb_path, chain])
+        rows = pdb2sa(pdbs)
 
     elif "Protein-protein" in task_type and data_type == "protein sequence" and upload_type == "Single file":
       df = pd.DataFrame(columns=["protein_1", "protein_2"])
@@ -4047,15 +4074,23 @@ def protein_property_prediction():
       assert name_2.endswith(".pdb") or name_2.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
       chain_1 = input_chain_1.value
-      sa_seq_1 = get_struc_seq(FOLDSEEK_PATH, pdb_path_1, chains=[chain_1], plddt_mask=True)[chain_1][-1]
-
       chain_2 = input_chain_2.value
-      sa_seq_2 = get_struc_seq(FOLDSEEK_PATH, pdb_path_2, chains=[chain_2], plddt_mask=True)[chain_2][-1]
-
-      rows.append([sa_seq_1, sa_seq_2])
-
-      df = pd.DataFrame(columns=["protein_1", "protein_2"])
-      df = df._append({"protein_1": name_1, "protein_2": name_2}, ignore_index=True)
+      
+      # ESM3模型不需要转换为SA序列，直接保存PDB路径
+      if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+        df = pd.DataFrame(columns=["protein_1", "protein_2", "chain_1", "chain_2", "pdb_path_1", "pdb_path_2"])
+        df = df._append({
+          "protein_1": name_1, "protein_2": name_2,
+          "chain_1": chain_1, "chain_2": chain_2,
+          "pdb_path_1": pdb_path_1, "pdb_path_2": pdb_path_2
+        }, ignore_index=True)
+        rows.append([name_1, name_2])  # 用于显示
+      else:
+        sa_seq_1 = get_struc_seq(FOLDSEEK_PATH, pdb_path_1, chains=[chain_1], plddt_mask=True)[chain_1][-1]
+        sa_seq_2 = get_struc_seq(FOLDSEEK_PATH, pdb_path_2, chains=[chain_2], plddt_mask=True)[chain_2][-1]
+        rows.append([sa_seq_1, sa_seq_2])
+        df = pd.DataFrame(columns=["protein_1", "protein_2"])
+        df = df._append({"protein_1": name_1, "protein_2": name_2}, ignore_index=True)
 
     elif "Protein-protein" in task_type and data_type == "protein structure" and upload_type == "Multiple files":
       csv_path = get_upload_file_path(upload_items_1)
@@ -4081,21 +4116,28 @@ def protein_property_prediction():
           struc_dir = file_path
 
       df = pd.read_csv(csv_path)
-      pdbs_1 = []
-      for pdb_name, chain in df[["protein_1", "chain_1"]].values:
-        pdb_path = f"{struc_dir}/{pdb_name}"
-        pdbs_1.append([pdb_path, chain])
+      
+      # ESM3模型不需要转换为SA序列，直接保存PDB路径
+      if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+        df["pdb_path_1"] = df["protein_1"].apply(lambda x: f"{struc_dir}/{x}")
+        df["pdb_path_2"] = df["protein_2"].apply(lambda x: f"{struc_dir}/{x}")
+        rows = list(zip(df["protein_1"].tolist(), df["protein_2"].tolist()))  # 用于显示
+      else:
+        pdbs_1 = []
+        for pdb_name, chain in df[["protein_1", "chain_1"]].values:
+          pdb_path = f"{struc_dir}/{pdb_name}"
+          pdbs_1.append([pdb_path, chain])
 
-      sa_seqs_1 = pdb2sa(pdbs_1)
+        sa_seqs_1 = pdb2sa(pdbs_1)
 
-      pdbs_2 = []
-      for pdb_name, chain in df[["protein_2", "chain_2"]].values:
-        pdb_path = f"{struc_dir}/{pdb_name}"
-        pdbs_2.append([pdb_path, chain])
+        pdbs_2 = []
+        for pdb_name, chain in df[["protein_2", "chain_2"]].values:
+          pdb_path = f"{struc_dir}/{pdb_name}"
+          pdbs_2.append([pdb_path, chain])
 
-      sa_seqs_2 = pdb2sa(pdbs_2)
+        sa_seqs_2 = pdb2sa(pdbs_2)
 
-      rows = list(zip(sa_seqs_1, sa_seqs_2))
+        rows = list(zip(sa_seqs_1, sa_seqs_2))
 
     else:
       raise
@@ -5272,71 +5314,18 @@ with ui_events() as poll:
     end_hint = HTML(markdown.markdown("## The program is interrupted. You could click the run-button to restart."))
     display(end_hint)
 
-def read_pdb_simple(pdb_file):
-    sequence = ""
-    coordinates = []
-    current_residue = None
-    current_coords = {}
-
-    aa_map = {
-        'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
-        'GLU': 'E', 'GLN': 'Q', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
-        'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
-        'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V'
-    }
-
-    with open(pdb_file, 'r') as f:
-        for line in f:
-            if line.startswith('ATOM'):
-                atom_name = line[12:16].strip()
-                res_name = line[17:20].strip()
-                res_num = int(line[22:26])
-                x = float(line[30:38])
-                y = float(line[38:46])
-                z = float(line[46:54])
-
-                if atom_name in ['N', 'CA', 'C', 'O'] and res_name in aa_map:
-                    if current_residue != res_num:
-                        if current_residue is not None:
-                            sequence += aa_map.get(prev_res_name, 'X')
-                            atom_coords = []
-                            for atom_type in ['N', 'CA', 'C', 'O']:
-                                if atom_type in current_coords:
-                                    atom_coords.append(current_coords[atom_type])
-                                else:
-                                    atom_coords.append([np.nan, np.nan, np.nan])
-                            coordinates.append(atom_coords)
-
-                        current_residue = res_num
-                        current_coords = {}
-                        prev_res_name = res_name
-
-                    current_coords[atom_name] = [x, y, z]
-
-    if current_residue is not None:
-        sequence += aa_map.get(prev_res_name, 'X')
-        atom_coords = []
-        for atom_type in ['N', 'CA', 'C', 'O']:
-            if atom_type in current_coords:
-                atom_coords.append(current_coords[atom_type])
-            else:
-                atom_coords.append([np.nan, np.nan, np.nan])
-        coordinates.append(atom_coords)
-
-    coordinates = np.array(coordinates, dtype=np.float32)
+def read_pdb_simple(pdb_file, chain_id="A"):
+    """使用ESM3的ProteinChain方式读取PDB文件"""
+    from esm.utils.structure.protein_chain import ProteinChain
+    
+    # 使用ESM3的ProteinChain读取PDB
+    chain = ProteinChain.from_pdb(pdb_file, chain_id=chain_id)
+    
+    # 返回序列和atom37坐标
+    sequence = chain.sequence
+    coordinates = chain.atom37_positions
+    
     return sequence, coordinates
-
-def preprocess_coordinates(coordinates):
-    if np.isnan(coordinates).any():
-        for atom_idx in range(4):  # N, CA, C, O
-            for coord_idx in range(3):  # x, y, z
-                mask = ~np.isnan(coordinates[:, atom_idx, coord_idx])
-                if mask.any():
-                    mean_val = np.mean(coordinates[mask, atom_idx, coord_idx])
-                    coordinates[np.isnan(coordinates[:, atom_idx, coord_idx]), atom_idx, coord_idx] = mean_val
-                else:
-                    coordinates[:, atom_idx, coord_idx] = 0.0
-    return coordinates
 
 def encode_sequence_only(model, sequence, device):
     from esm.sdk.api import ESMProtein
@@ -5360,13 +5349,10 @@ def encode_sequence_and_structure(model, sequence, coordinates, device):
     """使用序列和结构进行ESM3编码"""
     from esm.sdk.api import ESMProtein
 
-    # 转换坐标为torch张量
-    coords_tensor = torch.tensor(coordinates, dtype=torch.float32).to(device)
-
-    # 创建包含结构的ESMProtein对象
+    # 创建包含结构的ESMProtein对象 - coordinates应该已经是正确的格式
     protein_struct = ESMProtein(
         sequence=sequence,
-        coordinates=coords_tensor
+        coordinates=coordinates
     )
 
     with torch.no_grad():

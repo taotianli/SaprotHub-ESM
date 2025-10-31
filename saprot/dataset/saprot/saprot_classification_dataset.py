@@ -85,13 +85,16 @@ class SaprotClassificationDataset(LMDBDataset):
         entry = json.loads(self._get(index))
         seq = entry['seq'][:self.max_length-2]
         
+        # 检查是否有pdb_path字段（结构数据）
+        has_structure = 'pdb_path' in entry and entry['pdb_path'] is not None
+        
         # Convert sequence to string format for ESM3
         if isinstance(seq, list):
             seq = "".join(seq)
         
         # Apply masking if needed (simplified for ESM3)
-        if self.mask_struc_ratio is not None:
-            # Simple random masking for compatibility
+        if self.mask_struc_ratio is not None and not has_structure:
+            # Simple random masking for compatibility (only for sequence)
             random.seed(self.mask_seed + index)  # Add index to make it deterministic per sample
             seq_list = list(seq)
             mask_num = int(len(seq_list) * self.mask_struc_ratio)
@@ -106,8 +109,30 @@ class SaprotClassificationDataset(LMDBDataset):
                 # 检查模型类型
                 model_type = type(self.esm_model).__name__
                 
-                # 创建ESMProtein对象并编码
-                protein = ESMProtein(sequence=seq)
+                # 如果有结构数据，使用ProteinChain读取PDB并编码
+                if has_structure:
+                    from esm.utils.structure.protein_chain import ProteinChain
+                    
+                    pdb_path = entry['pdb_path']
+                    chain_id = entry.get('chain', 'A')  # 默认chain A
+                    
+                    try:
+                        # 使用ProteinChain读取PDB
+                        chain = ProteinChain.from_pdb(pdb_path, chain_id=chain_id)
+                        
+                        # 创建包含结构的ESMProtein对象
+                        protein = ESMProtein(
+                            sequence=chain.sequence,
+                            coordinates=chain.atom37_positions
+                        )
+                    except Exception as pdb_error:
+                        print(f"[数据集警告] 索引 {index} - 读取PDB失败: {str(pdb_error)}，回退到序列模式")
+                        # 回退到序列模式
+                        protein = ESMProtein(sequence=seq)
+                        has_structure = False
+                else:
+                    # 创建ESMProtein对象并编码（仅序列）
+                    protein = ESMProtein(sequence=seq)
                 
                 with torch.no_grad():  # 编码时不需要梯度
                     try:
@@ -136,14 +161,29 @@ class SaprotClassificationDataset(LMDBDataset):
                                 sequence_embedding = seq
                         else:
                             # 使用ESM3模型编码
-                            # print(f"[数据集调试] 索引 {index} - 使用ESM3模型编码")
+                            # print(f"[数据集调试] 索引 {index} - 使用ESM3模型编码，有结构: {has_structure}")
                             
                             # 直接使用encode方法获取encoded_protein
                             encoded_protein = self.esm_model.encode(protein)
                             # print(f"[数据集调试] 索引 {index} - ESM3编码成功，类型: {type(encoded_protein)}")
                             
-                            # 从encoded_protein中提取sequence token
-                            if hasattr(encoded_protein, 'sequence'):
+                            # 如果有结构，优先使用structure token，否则使用sequence token
+                            if has_structure and hasattr(encoded_protein, 'structure'):
+                                structure_tokens = getattr(encoded_protein, 'structure')
+                                # print(f"[数据集调试] 索引 {index} - 提取到structure tokens，类型: {type(structure_tokens)}")
+                                
+                                if torch.is_tensor(structure_tokens):
+                                    # print(f"[数据集调试] 索引 {index} - Structure Token形状: {structure_tokens.shape}")
+                                    # 将tensor移动到模型设备
+                                    structure_tokens = structure_tokens.to(self.model_device)
+                                    # 直接在数据集中进行固定长度处理
+                                    sequence_embedding = self._pad_or_truncate_tensor(structure_tokens, self.fixed_seq_length)
+                                    # print(f"[数据集调试] 索引 {index} - 结构token固定长度后形状: {sequence_embedding.shape}")
+                                else:
+                                    structure_tokens = torch.tensor(structure_tokens, device=self.model_device)
+                                    sequence_embedding = self._pad_or_truncate_tensor(structure_tokens, self.fixed_seq_length)
+                            elif hasattr(encoded_protein, 'sequence'):
+                                # 从encoded_protein中提取sequence token
                                 sequence_tokens = getattr(encoded_protein, 'sequence')
                                 # print(f"[数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
                                 
@@ -161,7 +201,7 @@ class SaprotClassificationDataset(LMDBDataset):
                                     sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
                                     # print(f"[数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                             else:
-                                # print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence属性")
+                                # print(f"[数据集调试] 索引 {index} - encoded_protein没有sequence/structure属性")
                                 # print(f"[数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
                                 # 返回原始序列
                                 sequence_embedding = seq
