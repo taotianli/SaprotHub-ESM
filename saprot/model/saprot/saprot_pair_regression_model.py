@@ -577,6 +577,12 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
+        # 调试：打印形状信息
+        print(f"[DEBUG] stacked_features shape: {stacked_features.shape}, expected: (batch_size, {hidden_size * 2})")
+        print(f"[DEBUG] hidden_size: {hidden_size}, hidden_size*2: {hidden_size * 2}")
+        print(f"[DEBUG] inputs_1 keys: {inputs_1.keys() if inputs_1 else 'None'}")
+        print(f"[DEBUG] inputs_2 keys: {inputs_2.keys() if inputs_2 else 'None'}")
+        
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
