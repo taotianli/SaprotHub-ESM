@@ -98,7 +98,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                         # 直接使用encode方法获取encoded_protein
                         encoded_protein_1 = self.esm_model.encode(protein_1)
                         encoded_protein_2 = self.esm_model.encode(protein_2)
-                        # print(f"[pair回归数据集调试] 索引 {index} - ✅ ESM3编码成功")
+                        # print(f"[pair回归数据集调试] 索引 {index} - ESM3编码成功")
                         
                         # 从encoded_protein中提取sequence token
                         if hasattr(encoded_protein_1, 'sequence') and hasattr(encoded_protein_2, 'sequence'):
@@ -129,7 +129,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                         sequence_embedding_1 = seq_1
                         sequence_embedding_2 = seq_2
             else:
-                # print(f"[pair回归数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，使用传统tokenizer处理")
+                # print(f"[pair回归数据集调试] 索引 {index} - ESM3模型未设置，使用传统tokenizer处理")
                 
                 # 使用传统tokenizer处理 (如果有的话)
                 if self.tokenizer is not None:
@@ -177,7 +177,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                 sequence_embedding_1 = seq_1
                 sequence_embedding_2 = seq_2
         except Exception as e:
-            # print(f"[pair回归数据集调试] 索引 {index} - ❌ 处理失败: {str(e)}")
+            # print(f"[pair回归数据集调试] 索引 {index} - 处理失败: {str(e)}")
             # 发生错误时返回原始序列
             sequence_embedding_1 = seq_1
             sequence_embedding_2 = seq_2
@@ -228,7 +228,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                 # print(f"[pair回归数据集调试] 堆叠后的固定长度token形状: {stacked_tokens_1.shape}, {stacked_tokens_2.shape}")
                 inputs = {"tokens_1": stacked_tokens_1, "tokens_2": stacked_tokens_2}
             except Exception as e:
-                # print(f"[pair回归数据集调试] ❌ 堆叠tokens失败: {str(e)}")
+                # print(f"[pair回归数据集调试] 堆叠tokens失败: {str(e)}")
                 # 回退到序列处理
                 inputs = {"sequences_1": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings_1],
                          "sequences_2": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings_2]}

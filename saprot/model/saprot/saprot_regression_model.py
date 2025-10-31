@@ -294,7 +294,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                     # print(f"[回归模型调试] 处理后特征形状: {stacked_features.shape}")
                     
                 else:
-                    # print(f"[回归模型调试] ❌ tokens维度不符合预期: {tokens_float.shape}")
+                    # print(f"[回归模型调试] tokens维度不符合预期: {tokens_float.shape}")
                     # 创建固定长度的零特征
                     batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
                     stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
@@ -441,7 +441,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 return logits
         
         else:
-            # print(f"[回归模型调试] ❌ 输入中没有找到tokens、embeddings、sequences或inputs")
+            # print(f"[回归模型调试] 输入中没有找到tokens、embeddings、sequences或inputs")
             stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
@@ -525,13 +525,13 @@ class SaprotRegressionModel(SaprotBaseModel):
                     full_name = f"regression_head.{name}"
                     all_params.append((full_name, param))
                     regression_head_param_count += 1
-                    # print(f"  ✅ 添加到优化器: {full_name}")
+                    # print(f"  添加到优化器: {full_name}")
 
         # print(f"回归头可训练参数数量: {regression_head_param_count}")
         # print(f"总可训练参数数量: {len(all_params)}")
 
         if not all_params:
-            # print("⚠️ 警告: 没有找到需要优化的参数!")
+            # print("警告: 没有找到需要优化的参数!")
             # 创建一个虚拟参数避免优化器错误
             dummy_param = torch.nn.Parameter(torch.tensor(0.0))
             optimizer_grouped_parameters = [
@@ -567,14 +567,14 @@ class SaprotRegressionModel(SaprotBaseModel):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
-            # print(f"⚠️  未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
+            # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
         
-        # print(f"✅ 优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
-        # print(f"✅ 学习率调度器: {lr_scheduler_name}")
-        # print(f"✅ 初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
+        # print(f"优化器重新初始化完成，总参数组数: {len(optimizer_grouped_parameters)}")
+        # print(f"学习率调度器: {lr_scheduler_name}")
+        # print(f"初始学习率: {self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
 
     # training_step和on_before_optimizer_step方法已移除
     # 这些功能现在由纯PyTorch训练循环处理
@@ -662,7 +662,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
                 param_count = sum(p.numel() for p in self.regression_head.parameters())
                 total_params += param_count
-                # print(f"🔍 保存回归头权重:")
+                # print(f"保存回归头权重:")
                 # print(f"  - 参数数量: {param_count:,}")
             
             # 检查是否使用了LoRA，如果是则保存LoRA参数
@@ -679,7 +679,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
                 lora_param_count = sum(p.numel() for p in lora_state.values())
                 total_params += lora_param_count
-                # print(f"🔍 保存LoRA权重:")
+                # print(f"保存LoRA权重:")
                 # print(f"  - LoRA参数数量: {lora_param_count:,}")
                 # print(f"  - LoRA rank: {self.model.r}")
                 # print(f"  - Target modules: {len(self.model.lora_layers)}")
@@ -704,19 +704,19 @@ class SaprotRegressionModel(SaprotBaseModel):
             
             # 验证保存的文件大小
             saved_size = os.path.getsize(save_path) / (1024 * 1024)
-            # print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
+            # print(f"模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
-            print(f"❌ 保存回归头权重失败: {str(e)}")
+            print(f"保存回归头权重失败: {str(e)}")
             # 尝试保存到当前目录作为备份
             try:
                 fallback_path = os.path.join(os.getcwd(), 'regression_head_checkpoint.pt')
                 if hasattr(self, 'regression_head'):
                     state_dict = {"regression_head": self.regression_head.state_dict()}
                     torch.save(state_dict, fallback_path)
-                    print(f"💾 备用保存成功: {fallback_path}")
+                    print(f"备用保存成功: {fallback_path}")
             except Exception as e2:
-                print(f"❌ 备用保存也失败: {str(e2)}")
+                print(f"备用保存也失败: {str(e2)}")
                 raise e
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
@@ -733,11 +733,11 @@ class SaprotRegressionModel(SaprotBaseModel):
             if os.path.exists(checkpoint_file):
                 checkpoint_path = checkpoint_file
             else:
-                # print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                # print(f"在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
                 return
         
         if not os.path.exists(checkpoint_path):
-            print(f"❌ Weight file does not exist: {checkpoint_path}")
+            print(f"Weight file does not exist: {checkpoint_path}")
             return
         
         try:
@@ -750,14 +750,14 @@ class SaprotRegressionModel(SaprotBaseModel):
                 regression_head_state = state_dict["regression_head"]
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                # print(f"🔍 Loading weights:")
+                # print(f"Loading weights:")
                 # print(f"  - File: {checkpoint_path}")
                 # print(f"  - Sequence length: {fixed_seq_length}")
                 
                 # Verify dimension matching
                 if fixed_seq_length == self.fixed_seq_length:
                     self.regression_head.load_state_dict(regression_head_state)
-                    # print(f"✅ Regression head weights loaded successfully")
+                    # print(f"Regression head weights loaded successfully")
                     
                     # Check if there are LoRA weights
                     if "lora" in state_dict:
@@ -766,17 +766,17 @@ class SaprotRegressionModel(SaprotBaseModel):
                             lora_state = state_dict["lora"]
                             lora_config = state_dict.get("lora_config", {})
                             
-                            # print(f"🔍 Loading LoRA weights:")
+                            # print(f"Loading LoRA weights:")
                             # print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
                             # print(f"  - LoRA parameters: {sum(p.numel() for p in lora_state.values()):,}")
                             
                             self.model.load_lora_state_dict(lora_state)
-                            # print(f"✅ LoRA weights loaded successfully")
+                            # print(f"LoRA weights loaded successfully")
                         else:
-                            print(f"⚠️ Checkpoint contains LoRA weights, but current model does not have LoRA enabled")
+                            print(f"Checkpoint contains LoRA weights, but current model does not have LoRA enabled")
                     
                 else:
-                    print(f"❌ Dimension mismatch: expected({self.fixed_seq_length}, 1), got({fixed_seq_length}, 1)")
+                    print(f"Dimension mismatch: expected({self.fixed_seq_length}, 1), got({fixed_seq_length}, 1)")
                     
             elif "model" in state_dict and any("regression_head" in k for k in state_dict["model"].keys()):
                 # Old format: contains full model, extract regression head
@@ -788,14 +788,14 @@ class SaprotRegressionModel(SaprotBaseModel):
                 }
                 if regression_head_state:
                     self.regression_head.load_state_dict(regression_head_state)
-                    # print(f"✅ Extracted and loaded regression head from full model weights")
+                    # print(f"Extracted and loaded regression head from full model weights")
                 else:
-                    print(f"❌ Regression head parameters not found in model weights")
+                    print(f"Regression head parameters not found in model weights")
             else:
                 print(f"Unrecognized weight file format")
                 
         except Exception as e:
-            print(f"❌ Failed to load regression head weights: {str(e)}")
+            print(f"Failed to load regression head weights: {str(e)}")
 
     def on_validation_epoch_end(self):
         # 打印回归头权重信息
@@ -852,10 +852,10 @@ class SaprotRegressionModel(SaprotBaseModel):
             # print(f"当前学习率: {current_lr}")
             
             if current_lr == 0:
-                # print("❌ 学习率为0，这会阻止参数更新!")
+                # print("学习率为0，这会阻止参数更新!")
                 pass
             elif current_lr < 1e-8:
-                # print("⚠️  学习率非常小，可能导致缓慢的收敛")
+                # print(" 学习率非常小，可能导致缓慢的收敛")
                 pass
             
             # 检查回归头参数是否在优化器中
@@ -867,10 +867,10 @@ class SaprotRegressionModel(SaprotBaseModel):
             
             missing_params = regression_head_param_ids - optimizer_param_ids
             if missing_params:
-                # print("❌ 回归头参数不在优化器中!")
+                # print("回归头参数不在优化器中!")
                 pass
             else:
-                # print("✅ 回归头参数已在优化器中")
+                # print("回归头参数已在优化器中")
                 pass
             
             # 检查梯度
@@ -887,7 +887,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 # print(f"总梯度范数: {total_grad_norm:.6f}")
                 # print(f"有梯度的参数数: {param_count}")
             else:
-                # print("❌ 没有参数有梯度!")
+                # print("没有参数有梯度!")
                 pass
             
             # print("=" * 30)

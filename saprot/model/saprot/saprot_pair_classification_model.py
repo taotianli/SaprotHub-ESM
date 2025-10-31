@@ -119,7 +119,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         for param in self.classification_head.parameters():
             param.requires_grad = True
         
-        # print(f"✅ Pair classifier created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
+        # print(f"Pair classifier created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
         
         # 重新初始化优化器以包含分类头参数
         self.init_optimizers()
@@ -712,7 +712,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 
                 param_count = sum(p.numel() for p in self.classification_head.parameters())
                 total_params += param_count
-                # print(f"🔍 保存分类头权重:")
+                # print(f"保存分类头权重:")
                 # print(f"  - 参数数量: {param_count:,}")
             
             # 检查是否使用了LoRA，如果是则保存LoRA参数
@@ -729,7 +729,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 
                 lora_param_count = sum(p.numel() for p in lora_state.values())
                 total_params += lora_param_count
-                # print(f"🔍 保存LoRA权重:")
+                # print(f"保存LoRA权重:")
                 # print(f"  - LoRA参数数量: {lora_param_count:,}")
                 # print(f"  - LoRA rank: {self.model.r}")
                 # print(f"  - Target modules: {len(self.model.lora_layers)}")
@@ -754,19 +754,19 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             
             # 验证保存的文件大小
             saved_size = os.path.getsize(save_path) / (1024 * 1024)
-            # print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
+            # print(f"模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
-            print(f"❌ 保存分类头权重失败: {str(e)}")
+            print(f"保存分类头权重失败: {str(e)}")
             # 尝试保存到当前目录作为备份
             try:
                 fallback_path = os.path.join(os.getcwd(), 'pair_classification_head_checkpoint.pt')
                 if hasattr(self, 'classification_head'):
                     state_dict = {"classification_head": self.classification_head.state_dict()}
                     torch.save(state_dict, fallback_path)
-                    print(f"💾 备用保存成功: {fallback_path}")
+                    print(f"备用保存成功: {fallback_path}")
             except Exception as e2:
-                print(f"❌ 备用保存也失败: {str(e2)}")
+                print(f"备用保存也失败: {str(e2)}")
                 raise e
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
@@ -783,11 +783,11 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             if os.path.exists(checkpoint_file):
                 checkpoint_path = checkpoint_file
             else:
-                # print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                # print(f"在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
                 return
         
         if not os.path.exists(checkpoint_path):
-            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            print(f"权重文件不存在: {checkpoint_path}")
             return
         
         try:
@@ -801,7 +801,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 num_labels = state_dict.get("num_labels", self.num_labels)
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                print(f"🔍 加载权重:")
+                print(f"加载权重:")
                 print(f"  - 文件: {checkpoint_path}")
                 print(f"  - 标签数: {num_labels}")
                 print(f"  - 序列长度: {fixed_seq_length}")
@@ -809,7 +809,7 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 # 验证维度匹配
                 if num_labels == self.num_labels and fixed_seq_length == self.fixed_seq_length:
                     self.classification_head.load_state_dict(classification_head_state)
-                    print(f"✅ 分类头权重加载成功")
+                    print(f"分类头权重加载成功")
                     
                     # 检查是否有LoRA权重
                     if "lora" in state_dict:
@@ -818,17 +818,17 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                             lora_state = state_dict["lora"]
                             lora_config = state_dict.get("lora_config", {})
                             
-                            print(f"🔍 加载LoRA权重:")
+                            print(f"加载LoRA权重:")
                             print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
                             print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
                             
                             self.model.load_lora_state_dict(lora_state)
-                            print(f"✅ LoRA权重加载成功")
+                            print(f"LoRA权重加载成功")
                         else:
-                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                            print(f"检查点包含LoRA权重，但当前模型未启用LoRA")
                     
                 else:
-                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, {self.num_labels}), 实际({fixed_seq_length}, {num_labels})")
+                    print(f"维度不匹配: 期望({self.fixed_seq_length}, {self.num_labels}), 实际({fixed_seq_length}, {num_labels})")
                     
             elif "model" in state_dict and any("classification_head" in k for k in state_dict["model"].keys()):
                 # 旧格式：包含整个模型，提取分类头部分
@@ -840,11 +840,11 @@ class SaprotPairClassificationModel(SaprotBaseModel):
                 }
                 if classification_head_state:
                     self.classification_head.load_state_dict(classification_head_state)
-                    print(f"✅ 从完整模型权重中提取并加载分类头")
+                    print(f"从完整模型权重中提取并加载分类头")
                 else:
-                    print(f"❌ 在模型权重中未找到分类头参数")
+                    print(f"在模型权重中未找到分类头参数")
             else:
                 print(f"Unrecognized weight file format")
                 
         except Exception as e:
-            print(f"❌ 加载分类头权重失败: {str(e)}")
+            print(f"加载分类头权重失败: {str(e)}")

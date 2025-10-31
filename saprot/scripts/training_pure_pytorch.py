@@ -132,18 +132,18 @@ class PurePyTorchTrainer:
             
             # 检查是否已经保存过模型
             if not os.path.exists(save_path):
-                print(f"\n⚠️ 没有保存过最佳模型（可能验证指标一直没有改进），强制保存最后的模型...")
+                print(f"\n没有保存过最佳模型（可能验证指标一直没有改进），强制保存最后的模型...")
                 model.save_checkpoint(save_path, save_info=None, save_weights_only=model.save_weights_only)
                 
                 # 验证文件大小
                 if os.path.exists(save_path):
                     file_size = os.path.getsize(save_path) / (1024 * 1024)
-                    print(f"✅ 模型已保存到: {save_path} ({file_size:.2f} MB)")
+                    print(f"模型已保存到: {save_path} ({file_size:.2f} MB)")
                 else:
-                    print(f"❌ 模型保存失败")
+                    print(f"模型保存失败")
             else:
                 file_size = os.path.getsize(save_path) / (1024 * 1024)
-                print(f"\n✅ 最佳模型已保存到: {save_path} ({file_size:.2f} MB)")
+                print(f"\n最佳模型已保存到: {save_path} ({file_size:.2f} MB)")
         
     def test(self, model, datamodule):
         """

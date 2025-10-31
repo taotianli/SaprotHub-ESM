@@ -95,7 +95,7 @@ class SaprotBaseModel(AbstractModel):
         if is_esm3 or is_esmc:
             # Use ESM3/ESMC LoRA
             model_name = "ESMC" if is_esmc else "ESM3"
-            print(f"🔧 Using {model_name} LoRA...")
+            print(f"Using {model_name} LoRA...")
             # 使用绝对导入，因为saprot包已安装
             from saprot.utils.esm3_lora import create_esm3_lora_model
             
@@ -114,7 +114,7 @@ class SaprotBaseModel(AbstractModel):
                 dropout=lora_dropout
             )
             
-            print(f"✅ {model_name} LoRA initialized successfully")
+            print(f"{model_name} LoRA initialized successfully")
             self.model.print_trainable_parameters()
             
             # After LoRA model is initialized, add trainable parameters to optimizer
@@ -304,10 +304,10 @@ class SaprotBaseModel(AbstractModel):
             from esm.models.esmc import ESMC
             
             esmc_model_name = self.config_path if self.config_path else "esmc_300m"
-            # print(f"🔧 从指定路径加载ESMC模型: {esmc_model_name}")
-            # print(f"🚀 开始加载ESMC模型...")
+            # print(f"从指定路径加载ESMC模型: {esmc_model_name}")
+            # print(f"开始加载ESMC模型...")
             self.model = ESMC.from_pretrained(esmc_model_name)
-            # print(f"✅ ESMC模型加载完成: {esmc_model_name}")
+            # print(f"ESMC模型加载完成: {esmc_model_name}")
             self.model_type = "esmc"
         else:
             # 使用ESM3模型
@@ -317,24 +317,24 @@ class SaprotBaseModel(AbstractModel):
             if self.config_path and self.config_path != "esm3-open":
                 # 如果提供了具体的config_path，使用它
                 esm3_model_name = self.config_path
-                # print(f"🔧 从指定路径加载ESM3模型: {esm3_model_name}")
+                # print(f"从指定路径加载ESM3模型: {esm3_model_name}")
             else:
                 # 默认使用esm3-open
                 esm3_model_name = "esm3-open"
-                # print(f"🔧 使用默认ESM3模型: {esm3_model_name}")
+                # print(f"使用默认ESM3模型: {esm3_model_name}")
 
-            # print(f"🚀 开始加载ESM3模型...")
+            # print(f"开始加载ESM3模型...")
             self.model = ESM3.from_pretrained(esm3_model_name)
-            # print(f"✅ ESM3模型加载完成: {esm3_model_name}")
+            # print(f"ESM3模型加载完成: {esm3_model_name}")
             self.model_type = "esm3"
 
         # 打印模型信息
         # if hasattr(self.model, 'config'):
-        #     print(f"📊 模型配置信息: {self.model.config}")
+        #     print(f"模型配置信息: {self.model.config}")
 
-        # print(f"🎯 模型设备: {next(self.model.parameters()).device}")
-        # print(f"🎯 模型数据类型: {next(self.model.parameters()).dtype}")
-        # print(f"🎯 模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
+        # print(f"模型设备: {next(self.model.parameters()).device}")
+        # print(f"模型数据类型: {next(self.model.parameters()).dtype}")
+        # print(f"模型参数数量: {sum(p.numel() for p in self.model.parameters()):,}")
 
         if self.extra_config is None:
             self.extra_config = {}
@@ -476,17 +476,17 @@ class SaprotBaseModel(AbstractModel):
             
             # Call parent save_checkpoint method
             super().save_checkpoint(save_path, save_info, save_weights_only)
-            # print(f"💾 模型checkpoint已保存到: {save_path}")
+            # print(f"模型checkpoint已保存到: {save_path}")
             
         except Exception as e:
-            print(f"❌ 保存checkpoint失败: {str(e)}")
+            print(f"保存checkpoint失败: {str(e)}")
             # Try to save to current directory as fallback
             try:
                 fallback_path = os.path.join(os.getcwd(), 'model_checkpoint.pt')
                 super().save_checkpoint(fallback_path, save_info, save_weights_only)
-                print(f"💾 fallback checkpoint已保存到: {fallback_path}")
+                print(f"fallback checkpoint已保存到: {fallback_path}")
             except Exception as e2:
-                print(f"❌ fallback保存也失败: {str(e2)}")
+                print(f"fallback保存也失败: {str(e2)}")
                 raise e
     
     def output_test_metrics(self, log_dict):

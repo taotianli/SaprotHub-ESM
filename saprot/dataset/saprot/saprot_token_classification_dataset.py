@@ -143,7 +143,7 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                     try:
                         # 直接使用encode方法获取encoded_protein
                         encoded_protein = self.esm_model.encode(protein)
-                        # print(f"[token分类数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
+                        # print(f"[token分类数据集调试] 索引 {index} - ESM3编码成功，类型: {type(encoded_protein)}")
                         
                         # 从encoded_protein中提取sequence token
                         if hasattr(encoded_protein, 'sequence'):
@@ -177,12 +177,12 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                         sequence_embedding = seq
             else:
                 # print(f"[token分类数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-                # print(f"[token分类数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
+                # print(f"[token分类数据集调试] 索引 {index} - ESM3模型未设置，无法进行编码")
                 # 返回原始序列，让模型处理
                 sequence_embedding = seq
         except Exception as e:
             # print(f"[token分类数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-            # print(f"[token分类数据集调试] 索引 {index} - ❌ ESM3编码失败: {str(e)}")
+            # print(f"[token分类数据集调试] 索引 {index} - ESM3编码失败: {str(e)}")
             # 发生错误时返回原始序列
             sequence_embedding = seq
         
@@ -219,13 +219,13 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                 for i, (seq_emb, label) in enumerate(zip(seqs, label_ids)):
                     if torch.is_tensor(seq_emb):
                         if seq_emb.shape[0] != expected_length:
-                            # print(f"[token分类数据集调试] ⚠️ 样本 {i} 长度不匹配: {seq_emb.shape[0]} vs {expected_length}，重新处理")
+                            # print(f"[token分类数据集调试] 样本 {i} 长度不匹配: {seq_emb.shape[0]} vs {expected_length}，重新处理")
                             # 重新进行截断或padding
                             seq_emb = self._pad_or_truncate_tensor(seq_emb, expected_length)
                         processed_tokens.append(seq_emb)
                     else:
                         # 创建固定长度的零tensor，使用与第一个tensor相同的设备
-                        # print(f"[token分类数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
+                        # print(f"[token分类数据集调试] 样本 {i} 不是tensor，创建零tensor")
                         device = processed_tokens[0].device if processed_tokens else self.model_device
                         processed_tokens.append(torch.zeros(expected_length, dtype=torch.long, device=device))
                     
@@ -253,7 +253,7 @@ class SaprotTokenClassificationDataset(LMDBDataset):
                     inputs = {"tokens": stacked_tokens}
                     labels = {"labels": stacked_labels}
                 except Exception as e:
-                    # print(f"[token分类数据集调试] ❌ 堆叠tokens失败: {str(e)}")
+                    # print(f"[token分类数据集调试] 堆叠tokens失败: {str(e)}")
                     # 回退到序列处理
                     inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in seqs]}
                     label_ids = pad_sequences(label_ids, constant_value=-1)

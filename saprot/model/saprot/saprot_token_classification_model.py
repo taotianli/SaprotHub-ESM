@@ -135,7 +135,7 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
         
-        print(f"✅ Token classifier created with hidden_size={hidden_size} for {model_info}")
+        print(f"Token classifier created with hidden_size={hidden_size} for {model_info}")
         print(f"{'='*60}\n")
     
     def compute_mcc(self, preds, target):

@@ -125,7 +125,7 @@ class SaprotRegressionDataset(LMDBDataset):
 					try:
 						# 直接使用encode方法获取encoded_protein
 						encoded_protein = self.esm_model.encode(protein)
-						# print(f"[回归数据集调试] 索引 {index} - ✅ ESM3编码成功，类型: {type(encoded_protein)}")
+						# print(f"[回归数据集调试] 索引 {index} - ESM3编码成功，类型: {type(encoded_protein)}")
 						
 						# 从encoded_protein中提取sequence token
 						if hasattr(encoded_protein, 'sequence'):
@@ -157,12 +157,12 @@ class SaprotRegressionDataset(LMDBDataset):
 						sequence_embedding = seq
 			else:
 				# print(f"[回归数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-				# print(f"[回归数据集调试] 索引 {index} - ⚠️ ESM3模型未设置，无法进行编码")
+				# print(f"[回归数据集调试] 索引 {index} - ESM3模型未设置，无法进行编码")
 				# 返回原始序列，让模型处理
 				sequence_embedding = seq
 		except Exception as e:
 			# print(f"[回归数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
-			# print(f"[回归数据集调试] 索引 {index} - ❌ 处理失败: {str(e)}")
+			# print(f"[回归数据集调试] 索引 {index} - 处理失败: {str(e)}")
 			# 发生错误时返回原始序列
 			sequence_embedding = seq
 		
@@ -204,13 +204,13 @@ class SaprotRegressionDataset(LMDBDataset):
 			for i, emb in enumerate(embeddings):
 				if torch.is_tensor(emb):
 					if emb.shape[0] != expected_length:
-						# print(f"[回归数据集调试] ⚠️ 样本 {i} 长度不匹配: {emb.shape[0]} vs {expected_length}，重新处理")
+						# print(f"[回归数据集调试] 样本 {i} 长度不匹配: {emb.shape[0]} vs {expected_length}，重新处理")
 						# 重新进行截断或padding
 						emb = self._pad_or_truncate_tensor(emb, expected_length)
 					processed_tokens.append(emb)
 				else:
 					# 创建固定长度的零tensor，使用与第一个tensor相同的设备
-					# print(f"[回归数据集调试] ⚠️ 样本 {i} 不是tensor，创建零tensor")
+					# print(f"[回归数据集调试] 样本 {i} 不是tensor，创建零tensor")
 					device = processed_tokens[0].device if processed_tokens else self.model_device
 					processed_tokens.append(torch.zeros(expected_length, dtype=torch.long, device=device))
 			
@@ -219,7 +219,7 @@ class SaprotRegressionDataset(LMDBDataset):
 				# print(f"[回归数据集调试] 堆叠后的固定长度token形状: {stacked_tokens.shape}")
 				inputs = {"tokens": stacked_tokens}
 			except Exception as e:
-				# print(f"[回归数据集调试] ❌ 堆叠tokens失败: {str(e)}")
+				# print(f"[回归数据集调试] 堆叠tokens失败: {str(e)}")
 				# 回退到序列处理
 				inputs = {"sequences": [str(emb) if torch.is_tensor(emb) else emb for emb in embeddings]}
 		else:

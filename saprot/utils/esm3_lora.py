@@ -117,7 +117,7 @@ class ESM3LoRAWrapper(nn.Module):
         self._add_lora_layers()
         self._freeze_original_parameters()
         
-        print(f"✅ LoRA layers added to ESM3 model:")
+        print(f"LoRA layers added to ESM3 model:")
         print(f"   Target modules: {len(self.lora_layers)}")
         print(f"   LoRA rank: {r}")
         print(f"   LoRA alpha: {alpha}")
@@ -190,7 +190,7 @@ class ESM3LoRAWrapper(nn.Module):
             lora_layer.lora_B.requires_grad = True
             lora_param_count += lora_layer.lora_A.numel() + lora_layer.lora_B.numel()
         
-        print(f"✅ Original parameters frozen, LoRA parameters: {lora_param_count:,}")
+        print(f"Original parameters frozen, LoRA parameters: {lora_param_count:,}")
     
     def forward(self, *args, **kwargs):
         return self.esm3_model(*args, **kwargs)
@@ -228,19 +228,19 @@ class ESM3LoRAWrapper(nn.Module):
     
     def save_lora_weights(self, path: str):
         torch.save(self.get_lora_state_dict(), path)
-        print(f"✅ LoRA weights saved to: {path}")
+        print(f"LoRA weights saved to: {path}")
     
     def load_lora_weights(self, path: str):
         state_dict = torch.load(path, map_location='cpu')
         self.load_lora_state_dict(state_dict)
-        print(f"✅ LoRA weights loaded from {path}")
+        print(f"LoRA weights loaded from {path}")
     
     def merge_and_save_model(self, path: str):
         for lora_layer in self.lora_layers.values():
             lora_layer.merge_weights()
         
         torch.save(self.esm3_model.state_dict(), path)
-        print(f"✅ Merged model saved to: {path}")
+        print(f"Merged model saved to: {path}")
         
         for lora_layer in self.lora_layers.values():
             lora_layer.unmerge_weights()
@@ -254,7 +254,7 @@ class ESM3LoRAWrapper(nn.Module):
             if param.requires_grad:
                 trainable_params += param.numel()
         
-        print(f"📊 Parameter Statistics:")
+        print(f"Parameter Statistics:")
         print(f"   Total parameters: {total_params:,}")
         print(f"   Trainable parameters: {trainable_params:,}")
         print(f"   Trainable ratio: {100 * trainable_params / total_params:.2f}%")

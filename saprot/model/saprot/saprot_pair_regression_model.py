@@ -197,7 +197,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         for param in self.regression_head.parameters():
             param.requires_grad = True
         
-        print(f"✅ Pair regressor created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
+        print(f"Pair regressor created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
@@ -418,9 +418,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             sequences_1 = inputs_1["sequences"]
             sequences_2 = inputs_2["sequences"]
             
-            print(f"[DEBUG sequences] Processing sequences, len(sequences_1): {len(sequences_1)}, len(sequences_2): {len(sequences_2)}")
-            print(f"[DEBUG sequences] Type of sequences_1[0]: {type(sequences_1[0])}")
-            
             # Check if model is ESMC or ESM3
             # 优先使用显式传递的base_model_type参数
             if hasattr(self, 'base_model_type') and self.base_model_type:
@@ -430,21 +427,17 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 model_class_name = type(self.model).__name__
                 use_esmc = ("ESMC" in model_class_name)
             
-            print(f"[DEBUG sequences] use_esmc: {use_esmc}, base_model_type: {getattr(self, 'base_model_type', 'None')}")
-            
             features_1 = []
             features_2 = []
             
             if use_esmc:
                 # Process sequences using ESMC
-                print(f"[DEBUG sequences] Entering ESMC branch")
                 from esm.sdk.api import ESMProtein, LogitsConfig
                 
                 # Get actual ESMC hidden size from first sequence
                 esmc_hidden_size = None
                 
                 for i, (seq_1, seq_2) in enumerate(zip(sequences_1, sequences_2)):
-                    print(f"[DEBUG sequences ESMC] Processing pair {i}, seq_1 len: {len(seq_1) if isinstance(seq_1, str) else 'not string'}, seq_2 len: {len(seq_2) if isinstance(seq_2, str) else 'not string'}")
                     try:
                         # Encode first sequence
                         protein_1 = ESMProtein(sequence=seq_1)
@@ -469,8 +462,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                             if esmc_hidden_size is None:
                                 esmc_hidden_size = logits_output_1.embeddings.shape[-1]
                             
-                            print(f"[DEBUG sequences ESMC] Got embeddings, shape_1: {logits_output_1.embeddings.shape}, shape_2: {logits_output_2.embeddings.shape}")
-                            
                             # 处理可能的batch维度
                             emb_1 = logits_output_1.embeddings
                             emb_2 = logits_output_2.embeddings
@@ -487,8 +478,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                                 seq_feature_2 = emb_2.mean(dim=1).squeeze(0).float()  # [esmc_hidden_size]
                             else:
                                 seq_feature_2 = emb_2.mean(dim=0).float()  # [esmc_hidden_size]
-                            
-                            print(f"[DEBUG sequences ESMC] After mean, shape_1: {seq_feature_1.shape}, shape_2: {seq_feature_2.shape}")
                             
                             features_1.append(seq_feature_1.to(device=device, dtype=model_dtype))
                             features_2.append(seq_feature_2.to(device=device, dtype=model_dtype))
@@ -571,17 +560,11 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                         features_1.append(feature_1)
                         features_2.append(feature_2)
             
-            print(f"[DEBUG sequences] After processing, len(features_1): {len(features_1)}, len(features_2): {len(features_2)}")
             if features_1 and features_2:
-                print(f"[DEBUG sequences] features_1[0] shape: {features_1[0].shape if len(features_1) > 0 else 'empty'}")
-                print(f"[DEBUG sequences] features_2[0] shape: {features_2[0].shape if len(features_2) > 0 else 'empty'}")
                 stacked_features_1 = torch.stack(features_1)  # [batch_size, hidden_size]
                 stacked_features_2 = torch.stack(features_2)  # [batch_size, hidden_size]
-                print(f"[DEBUG sequences] stacked_features_1 shape: {stacked_features_1.shape}, stacked_features_2 shape: {stacked_features_2.shape}")
                 stacked_features = torch.cat([stacked_features_1, stacked_features_2], dim=1)  # [batch_size, hidden_size*2]
-                print(f"[DEBUG sequences] Final stacked_features shape after cat: {stacked_features.shape}")
             else:
-                print(f"[DEBUG sequences] features lists are empty, creating zero tensor")
                 batch_size = 1
                 stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
         
@@ -607,12 +590,6 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
-        
-        # 调试：打印形状信息
-        print(f"[DEBUG] stacked_features shape: {stacked_features.shape}, expected: (batch_size, {hidden_size * 2})")
-        print(f"[DEBUG] hidden_size: {hidden_size}, hidden_size*2: {hidden_size * 2}")
-        print(f"[DEBUG] inputs_1 keys: {inputs_1.keys() if inputs_1 else 'None'}")
-        print(f"[DEBUG] inputs_2 keys: {inputs_2.keys() if inputs_2 else 'None'}")
         
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
@@ -682,13 +659,13 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                     full_name = f"regression_head.{name}"
                     all_params.append((full_name, param))
                     regression_head_param_count += 1
-                    # print(f"  ✅ 添加到优化器: {full_name}")
+                    # print(f"  添加到优化器: {full_name}")
 
         # print(f"回归头可训练参数数量: {regression_head_param_count}")
         # print(f"总可训练参数数量: {len(all_params)}")
 
         if not all_params:
-            # print("⚠️ 警告: 没有找到需要优化的参数!")
+            # print("警告: 没有找到需要优化的参数!")
             # 创建一个虚拟参数避免优化器错误
             dummy_param = torch.nn.Parameter(torch.tensor(0.0))
             optimizer_grouped_parameters = [
@@ -724,7 +701,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
-            # print(f"⚠️  未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
+            # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
@@ -739,7 +716,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 计算损失
         loss = self.loss_func('train', outputs, labels)
         
-        # print(f"🔍 Batch {batch_idx}: Loss = {loss.item():.6f}")
+        # print(f"Batch {batch_idx}: Loss = {loss.item():.6f}")
         
         self.log("loss", loss, prog_bar=True)
         return loss
@@ -800,7 +777,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 
                 param_count = sum(p.numel() for p in self.regression_head.parameters())
                 total_params += param_count
-                # print(f"🔍 保存回归头权重:")
+                # print(f"保存回归头权重:")
                 # print(f"  - 参数数量: {param_count:,}")
             
             # 检查是否使用了LoRA，如果是则保存LoRA参数
@@ -817,7 +794,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 
                 lora_param_count = sum(p.numel() for p in lora_state.values())
                 total_params += lora_param_count
-                # print(f"🔍 保存LoRA权重:")
+                # print(f"保存LoRA权重:")
                 # print(f"  - LoRA参数数量: {lora_param_count:,}")
                 # print(f"  - LoRA rank: {self.model.r}")
                 # print(f"  - Target modules: {len(self.model.lora_layers)}")
@@ -842,19 +819,19 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             
             # 验证保存的文件大小
             saved_size = os.path.getsize(save_path) / (1024 * 1024)
-            # print(f"✅ 模型权重保存成功: {saved_size:.2f} MB")
+            # print(f"模型权重保存成功: {saved_size:.2f} MB")
                 
         except Exception as e:
-            print(f"❌ 保存回归头权重失败: {str(e)}")
+            print(f"保存回归头权重失败: {str(e)}")
             # 尝试保存到当前目录作为备份
             try:
                 fallback_path = os.path.join(os.getcwd(), 'pair_regression_head_checkpoint.pt')
                 if hasattr(self, 'regression_head'):
                     state_dict = {"regression_head": self.regression_head.state_dict()}
                     torch.save(state_dict, fallback_path)
-                    print(f"💾 备用保存成功: {fallback_path}")
+                    print(f"备用保存成功: {fallback_path}")
             except Exception as e2:
-                print(f"❌ 备用保存也失败: {str(e2)}")
+                print(f"备用保存也失败: {str(e2)}")
                 raise e
 
     def load_checkpoint(self, checkpoint_path: str) -> None:
@@ -871,11 +848,11 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             if os.path.exists(checkpoint_file):
                 checkpoint_path = checkpoint_file
             else:
-                # print(f"❌ 在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
+                # print(f"在目录 {checkpoint_path} 中未找到权重文件 {basename}.pt")
                 return
         
         if not os.path.exists(checkpoint_path):
-            print(f"❌ 权重文件不存在: {checkpoint_path}")
+            print(f"权重文件不存在: {checkpoint_path}")
             return
         
         try:
@@ -888,14 +865,14 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 regression_head_state = state_dict["regression_head"]
                 fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                print(f"🔍 加载权重:")
+                print(f"加载权重:")
                 print(f"  - 文件: {checkpoint_path}")
                 print(f"  - 序列长度: {fixed_seq_length}")
                 
                 # 验证维度匹配
                 if fixed_seq_length == self.fixed_seq_length:
                     self.regression_head.load_state_dict(regression_head_state)
-                    print(f"✅ 回归头权重加载成功")
+                    print(f"回归头权重加载成功")
                     
                     # 检查是否有LoRA权重
                     if "lora" in state_dict:
@@ -904,17 +881,17 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                             lora_state = state_dict["lora"]
                             lora_config = state_dict.get("lora_config", {})
                             
-                            print(f"🔍 加载LoRA权重:")
+                            print(f"加载LoRA权重:")
                             print(f"  - LoRA rank: {lora_config.get('r', 'unknown')}")
                             print(f"  - LoRA参数数量: {sum(p.numel() for p in lora_state.values()):,}")
                             
                             self.model.load_lora_state_dict(lora_state)
-                            print(f"✅ LoRA权重加载成功")
+                            print(f"LoRA权重加载成功")
                         else:
-                            print(f"⚠️ 检查点包含LoRA权重，但当前模型未启用LoRA")
+                            print(f"检查点包含LoRA权重，但当前模型未启用LoRA")
                     
                 else:
-                    print(f"❌ 维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
+                    print(f"维度不匹配: 期望({self.fixed_seq_length}, 1), 实际({fixed_seq_length}, 1)")
                     
             elif "model" in state_dict and any("regression_head" in k for k in state_dict["model"].keys()):
                 # 旧格式：包含整个模型，提取回归头部分
@@ -926,11 +903,11 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 }
                 if regression_head_state:
                     self.regression_head.load_state_dict(regression_head_state)
-                    print(f"✅ 从完整模型权重中提取并加载回归头")
+                    print(f"从完整模型权重中提取并加载回归头")
                 else:
-                    print(f"❌ 在模型权重中未找到回归头参数")
+                    print(f"在模型权重中未找到回归头参数")
             else:
                 print(f"Unrecognized weight file format")
                 
         except Exception as e:
-            print(f"❌ 加载回归头权重失败: {str(e)}")
+            print(f"加载回归头权重失败: {str(e)}")
