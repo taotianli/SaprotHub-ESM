@@ -56,12 +56,21 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
             chain_1 = row["chain_1"]
             chain_2 = row["chain_2"]
 
-            if stage == "train":
-                seq_1 = row["sequence_1"][:2048]
-                seq_2 = row["sequence_2"][:2048]
+            # 检查是否有sequence列（SA序列或AA序列）或protein列（ESM3结构数据的PDB文件名）
+            if "sequence_1" in row and pd.notna(row["sequence_1"]):
+                # 有sequence列，使用序列数据
+                if stage == "train":
+                    seq_1 = row["sequence_1"][:2048]
+                    seq_2 = row["sequence_2"][:2048]
+                else:
+                    seq_1 = row["sequence_1"]
+                    seq_2 = row["sequence_2"]
+            elif "protein_1" in row and pd.notna(row["protein_1"]):
+                # 没有sequence列，使用protein列（ESM3结构数据）
+                seq_1 = row["protein_1"]  # PDB文件名
+                seq_2 = row["protein_2"]  # PDB文件名
             else:
-                seq_1 = row["sequence_1"]
-                seq_2 = row["sequence_2"]
+                raise ValueError(f"Row {i}: Missing both 'sequence_1' and 'protein_1' columns")
 
             tmp_dict = data_dicts[stage]
 
@@ -75,6 +84,13 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
                 "chain_2": chain_2,
                 label_keys[task_type]: label
             }
+            
+            # 如果有pdb_path，也添加到sample中（用于ESM3结构数据）
+            if "pdb_path_1" in row and pd.notna(row["pdb_path_1"]):
+                sample["pdb_path_1"] = row["pdb_path_1"]
+            if "pdb_path_2" in row and pd.notna(row["pdb_path_2"]):
+                sample["pdb_path_2"] = row["pdb_path_2"]
+                
             tmp_dict[len(tmp_dict)] = json.dumps(sample)
         
     else:
@@ -84,10 +100,18 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
             label = row["label"]
             stage = row["stage"]
 
-            if stage == "train":
-                seq = row["sequence"][:2048]
+            # 检查是否有sequence列（SA序列或AA序列）或protein列（ESM3结构数据的PDB文件名）
+            if "sequence" in row and pd.notna(row["sequence"]):
+                # 有sequence列，使用序列数据
+                if stage == "train":
+                    seq = row["sequence"][:2048]
+                else:
+                    seq = row["sequence"]
+            elif "protein" in row and pd.notna(row["protein"]):
+                # 没有sequence列，使用protein列（ESM3结构数据）
+                seq = row["protein"]  # PDB文件名
             else:
-                seq = row["sequence"]
+                raise ValueError(f"Row {i}: Missing both 'sequence' and 'protein' columns")
 
             tmp_dict = data_dicts[stage]
 
@@ -96,6 +120,13 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
                 "seq": seq,
                 label_keys[task_type]: label
             }
+            
+            # 如果有pdb_path和chain，也添加到sample中（用于ESM3结构数据）
+            if "pdb_path" in row and pd.notna(row["pdb_path"]):
+                sample["pdb_path"] = row["pdb_path"]
+            if "chain" in row and pd.notna(row["chain"]):
+                sample["chain"] = row["chain"]
+                
             tmp_dict[len(tmp_dict)] = json.dumps(sample)
 
     # If the task is a classification task, check the validity of the labels

@@ -2957,10 +2957,11 @@ def choose_training_task():
             df["pdb_path"] = df["protein"].apply(lambda x: f"{struc_dir}/{x}")
             df["protein"] = df["protein"]  # 保持原PDB文件名
           else:
+            # 对于pair任务，需要添加name列和pdb_path列
+            df["name_1"] = df["protein_1"].apply(lambda x: x.split('.')[0])
+            df["name_2"] = df["protein_2"].apply(lambda x: x.split('.')[0])
             df["pdb_path_1"] = df["protein_1"].apply(lambda x: f"{struc_dir}/{x}")
             df["pdb_path_2"] = df["protein_2"].apply(lambda x: f"{struc_dir}/{x}")
-            df["protein_1"] = df["protein_1"]  # 保持原PDB文件名
-            df["protein_2"] = df["protein_2"]  # 保持原PDB文件名
         else:
           # 其他模型：使用foldseek转换为SA序列
           if "Protein-protein" not in task_type.value:
@@ -3016,10 +3017,18 @@ def choose_training_task():
             df = pd.read_csv(csv_dataset_path)
         else:
             raise e
-    if "Protein-protein" in task_type.value:
-      df = df.rename(columns={"protein_1": "sequence_1", "protein_2": "sequence_2"})
+    
+    # ESM3结构数据不需要重命名protein列（保留PDB文件名）
+    # 只有非ESM3或序列数据才需要重命名为sequence
+    if data_type.value == "protein structure" and model_type_value in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
+      # ESM3结构数据：protein列保持不变，存储PDB文件名
+      pass
     else:
-      df = df.rename(columns={"protein": "sequence"})
+      # 其他情况：重命名为sequence
+      if "Protein-protein" in task_type.value:
+        df = df.rename(columns={"protein_1": "sequence_1", "protein_2": "sequence_2"})
+      else:
+        df = df.rename(columns={"protein": "sequence"})
 
     if "stage" not in df.columns:
       print("The 'stage' column was not provided. We will randomly split the data into training, validation and test set.")
