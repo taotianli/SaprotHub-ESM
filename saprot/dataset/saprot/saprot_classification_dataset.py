@@ -114,7 +114,8 @@ class SaprotClassificationDataset(LMDBDataset):
                     from esm.utils.structure.protein_chain import ProteinChain
                     
                     pdb_path = entry['pdb_path']
-                    chain_id = entry.get('chain', 'A')  # 默认chain A
+                    # 从CSV中读取chain列，如果没有则默认为'A'
+                    chain_id = entry.get('chain', 'A')
                     
                     try:
                         # 使用ProteinChain读取PDB

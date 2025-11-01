@@ -94,6 +94,7 @@ class SaprotPairClassificationDataset(LMDBDataset):
                     from esm.utils.structure.protein_chain import ProteinChain
                     
                     pdb_path_1 = entry['pdb_path_1']
+                    # 从CSV中读取chain_1列，如果没有则默认为'A'
                     chain_id_1 = entry.get('chain_1', 'A')
                     
                     try:
@@ -117,6 +118,7 @@ class SaprotPairClassificationDataset(LMDBDataset):
                     from esm.utils.structure.protein_chain import ProteinChain
                     
                     pdb_path_2 = entry['pdb_path_2']
+                    # 从CSV中读取chain_2列，如果没有则默认为'A'
                     chain_id_2 = entry.get('chain_2', 'A')
                     
                     try:

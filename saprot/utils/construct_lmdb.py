@@ -49,12 +49,25 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
         # Go through each row of the CSV file
         for i, row in tqdm(df.iterrows(), total=len(df)):
             # seq, label, stage = row
-            label = row["label"]
-            stage = row["stage"]
-            name_1 = row["name_1"]
-            name_2 = row["name_2"]
-            chain_1 = row["chain_1"]
-            chain_2 = row["chain_2"]
+            try:
+                label = row["label"]
+                stage = row["stage"]
+            except KeyError as e:
+                missing_col = str(e).strip("'")
+                raise ValueError(
+                    f"❌ 错误：Protein-protein任务缺少必需列 '{missing_col}'！\n"
+                    f"📋 Protein-protein任务需要以下列：\n"
+                    f"   - protein_1, protein_2 或 sequence_1, sequence_2 (结构或序列)\n"
+                    f"   - chain_1, chain_2 (可选，链ID，默认为'A')\n"
+                    f"   - label (标签)\n"
+                    f"   - stage (训练/验证/测试集标记)\n"
+                    f"💡 提示：如果你的数据是单个蛋白质（只有 protein/sequence 列），\n"
+                    f"   请选择 'Protein-level Classification' 或 'Protein-level Regression' 任务！"
+                )
+            
+            # chain_1和chain_2是可选的，如果没有则默认为'A'
+            chain_1 = row.get("chain_1", "A") if "chain_1" in row else "A"
+            chain_2 = row.get("chain_2", "A") if "chain_2" in row else "A"
 
             # 检查是否有sequence列（SA序列或AA序列）或protein列（ESM3结构数据的PDB文件名）
             if "sequence_1" in row and pd.notna(row["sequence_1"]):
@@ -65,10 +78,16 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
                 else:
                     seq_1 = row["sequence_1"]
                     seq_2 = row["sequence_2"]
+                # 使用序列本身作为name（如果没有单独的name列）
+                name_1 = row.get("name_1", seq_1[:50])  # 截取前50个字符作为标识
+                name_2 = row.get("name_2", seq_2[:50])
             elif "protein_1" in row and pd.notna(row["protein_1"]):
                 # 没有sequence列，使用protein列（ESM3结构数据）
                 seq_1 = row["protein_1"]  # PDB文件名
                 seq_2 = row["protein_2"]  # PDB文件名
+                # 使用protein文件名作为name（如果没有单独的name列）
+                name_1 = row.get("name_1", row["protein_1"])
+                name_2 = row.get("name_2", row["protein_2"])
             else:
                 raise ValueError(f"Row {i}: Missing both 'sequence_1' and 'protein_1' columns")
 
@@ -97,8 +116,20 @@ def construct_lmdb(csv_file: str, root_dir: str, dataset_name: str, task_type: s
         # Go through each row of the CSV file
         for i, row in tqdm(df.iterrows(), total=len(df)):
             # seq, label, stage = row
-            label = row["label"]
-            stage = row["stage"]
+            try:
+                label = row["label"]
+                stage = row["stage"]
+            except KeyError as e:
+                missing_col = str(e).strip("'")
+                raise ValueError(
+                    f"❌ 错误：单蛋白质任务缺少必需列 '{missing_col}'！\n"
+                    f"📋 单蛋白质任务需要以下列：\n"
+                    f"   - protein 或 sequence (结构文件名或序列)\n"
+                    f"   - label (标签)\n"
+                    f"   - stage (训练/验证/测试集标记)\n"
+                    f"💡 提示：如果你的数据是蛋白质对（有 protein_1/protein_2 列），\n"
+                    f"   请选择 'Protein-protein Classification' 或 'Protein-protein Regression' 任务！"
+                )
 
             # 检查是否有sequence列（SA序列或AA序列）或protein列（ESM3结构数据的PDB文件名）
             if "sequence" in row and pd.notna(row["sequence"]):
