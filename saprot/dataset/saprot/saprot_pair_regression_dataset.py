@@ -76,6 +76,10 @@ class SaprotPairRegressionDataset(LMDBDataset):
         entry = json.loads(self._get(index))
         seq_1, seq_2 = entry['seq_1'][:self.max_length-2], entry['seq_2'][:self.max_length-2]
 
+        # 检查是否有pdb_path字段（结构数据）
+        has_structure_1 = 'pdb_path_1' in entry and entry['pdb_path_1'] is not None
+        has_structure_2 = 'pdb_path_2' in entry and entry['pdb_path_2'] is not None
+
         # Convert sequences to string format for ESM3
         if isinstance(seq_1, list):
             seq_1 = "".join(seq_1)
@@ -85,13 +89,53 @@ class SaprotPairRegressionDataset(LMDBDataset):
         # 在主线程中进行ESM3编码
         try:
             if self.esm_model is not None:
-                # 使用ESM3模型编码sequence对
-                # print(f"[pair回归数据集调试] 索引 {index} - Sequence1: {seq_1[:50]}{'...' if len(seq_1) > 50 else ''}")
-                # print(f"[pair回归数据集调试] 索引 {index} - Sequence2: {seq_2[:50]}{'...' if len(seq_2) > 50 else ''}")
+                # 处理第一个蛋白
+                if has_structure_1:
+                    from esm.utils.structure.protein_chain import ProteinChain
+                    
+                    pdb_path_1 = entry['pdb_path_1']
+                    # 从CSV中读取chain_1列，如果没有则默认为'A'
+                    chain_id_1 = entry.get('chain_1', 'A')
+                    
+                    try:
+                        # 使用ProteinChain读取PDB
+                        chain_1 = ProteinChain.from_pdb(pdb_path_1, chain_id=chain_id_1)
+                        
+                        # 创建包含结构的ESMProtein对象
+                        protein_1 = ESMProtein(
+                            sequence=chain_1.sequence,
+                            coordinates=chain_1.atom37_positions
+                        )
+                    except Exception as pdb_error:
+                        print(f"[Pair回归数据集警告] 索引 {index} - 读取PDB1失败: {str(pdb_error)}，回退到序列模式")
+                        protein_1 = ESMProtein(sequence=seq_1)
+                        has_structure_1 = False
+                else:
+                    protein_1 = ESMProtein(sequence=seq_1)
                 
-                # 创建ESMProtein对象并编码
-                protein_1 = ESMProtein(sequence=seq_1)
-                protein_2 = ESMProtein(sequence=seq_2)
+                # 处理第二个蛋白
+                if has_structure_2:
+                    from esm.utils.structure.protein_chain import ProteinChain
+                    
+                    pdb_path_2 = entry['pdb_path_2']
+                    # 从CSV中读取chain_2列，如果没有则默认为'A'
+                    chain_id_2 = entry.get('chain_2', 'A')
+                    
+                    try:
+                        # 使用ProteinChain读取PDB
+                        chain_2 = ProteinChain.from_pdb(pdb_path_2, chain_id=chain_id_2)
+                        
+                        # 创建包含结构的ESMProtein对象
+                        protein_2 = ESMProtein(
+                            sequence=chain_2.sequence,
+                            coordinates=chain_2.atom37_positions
+                        )
+                    except Exception as pdb_error:
+                        print(f"[Pair回归数据集警告] 索引 {index} - 读取PDB2失败: {str(pdb_error)}，回退到序列模式")
+                        protein_2 = ESMProtein(sequence=seq_2)
+                        has_structure_2 = False
+                else:
+                    protein_2 = ESMProtein(sequence=seq_2)
                 
                 with torch.no_grad():  # 编码时不需要梯度
                     try:
@@ -100,27 +144,44 @@ class SaprotPairRegressionDataset(LMDBDataset):
                         encoded_protein_2 = self.esm_model.encode(protein_2)
                         # print(f"[pair回归数据集调试] 索引 {index} - ESM3编码成功")
                         
-                        # 从encoded_protein中提取sequence token
-                        if hasattr(encoded_protein_1, 'sequence') and hasattr(encoded_protein_2, 'sequence'):
+                        # 处理第一个蛋白的tokens - 如果有结构，优先使用structure token
+                        if has_structure_1 and hasattr(encoded_protein_1, 'structure'):
+                            structure_tokens_1 = getattr(encoded_protein_1, 'structure')
+                            if torch.is_tensor(structure_tokens_1):
+                                structure_tokens_1 = structure_tokens_1.to(self.model_device)
+                                sequence_embedding_1 = self._pad_or_truncate_tensor(structure_tokens_1, self.fixed_seq_length)
+                            else:
+                                structure_tokens_1 = torch.tensor(structure_tokens_1, device=self.model_device)
+                                sequence_embedding_1 = self._pad_or_truncate_tensor(structure_tokens_1, self.fixed_seq_length)
+                        elif hasattr(encoded_protein_1, 'sequence'):
                             sequence_tokens_1 = getattr(encoded_protein_1, 'sequence')
-                            sequence_tokens_2 = getattr(encoded_protein_2, 'sequence')
-                            
-                            if torch.is_tensor(sequence_tokens_1) and torch.is_tensor(sequence_tokens_2):
-                                # 将tensor移动到模型设备（通常是GPU）
+                            if torch.is_tensor(sequence_tokens_1):
                                 sequence_tokens_1 = sequence_tokens_1.to(self.model_device)
-                                sequence_tokens_2 = sequence_tokens_2.to(self.model_device)
-                                # 直接在数据集中进行固定长度处理
                                 sequence_embedding_1 = self._pad_or_truncate_tensor(sequence_tokens_1, self.fixed_seq_length)
+                            else:
+                                sequence_tokens_1 = torch.tensor(sequence_tokens_1, device=self.model_device)
+                                sequence_embedding_1 = self._pad_or_truncate_tensor(sequence_tokens_1, self.fixed_seq_length)
+                        else:
+                            sequence_embedding_1 = seq_1
+                        
+                        # 处理第二个蛋白的tokens - 如果有结构，优先使用structure token
+                        if has_structure_2 and hasattr(encoded_protein_2, 'structure'):
+                            structure_tokens_2 = getattr(encoded_protein_2, 'structure')
+                            if torch.is_tensor(structure_tokens_2):
+                                structure_tokens_2 = structure_tokens_2.to(self.model_device)
+                                sequence_embedding_2 = self._pad_or_truncate_tensor(structure_tokens_2, self.fixed_seq_length)
+                            else:
+                                structure_tokens_2 = torch.tensor(structure_tokens_2, device=self.model_device)
+                                sequence_embedding_2 = self._pad_or_truncate_tensor(structure_tokens_2, self.fixed_seq_length)
+                        elif hasattr(encoded_protein_2, 'sequence'):
+                            sequence_tokens_2 = getattr(encoded_protein_2, 'sequence')
+                            if torch.is_tensor(sequence_tokens_2):
+                                sequence_tokens_2 = sequence_tokens_2.to(self.model_device)
                                 sequence_embedding_2 = self._pad_or_truncate_tensor(sequence_tokens_2, self.fixed_seq_length)
                             else:
-                                # 如果不是tensor，转换为tensor并处理
-                                sequence_tokens_1 = torch.tensor(sequence_tokens_1, device=self.model_device)
                                 sequence_tokens_2 = torch.tensor(sequence_tokens_2, device=self.model_device)
-                                sequence_embedding_1 = self._pad_or_truncate_tensor(sequence_tokens_1, self.fixed_seq_length)
                                 sequence_embedding_2 = self._pad_or_truncate_tensor(sequence_tokens_2, self.fixed_seq_length)
                         else:
-                            # 返回原始序列
-                            sequence_embedding_1 = seq_1
                             sequence_embedding_2 = seq_2
                             
                     except Exception as encode_error:

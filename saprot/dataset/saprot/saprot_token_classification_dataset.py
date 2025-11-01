@@ -95,6 +95,9 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         # 因为 seq 可能包含#,长度是氨基酸的2倍,而 label 只对应氨基酸
         label = entry["label"]  # 保持原始长度
 
+        # 检查是否有pdb_path字段（结构数据）
+        has_structure = 'pdb_path' in entry and entry['pdb_path'] is not None
+
         # Convert sequence to string format for ESM3
         if isinstance(seq, list):
             seq = "".join(seq)
@@ -115,7 +118,7 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         # 重要发现: 数据源中 entry['seq'] 可能是 "M#T#L#..." 格式 (带#的foldseek序列)
         # 而 entry['label'] 只对应氨基酸位置,不包括#位置
         # 所以当 seq 包含 # 时,我们需要清理序列,但标签已经是正确的了!
-        if '#' in seq:
+        if '#' in seq and not has_structure:
             # 只需要清理序列,移除#标记
             # 标签已经只对应氨基酸位置,不需要额外处理
             seq = seq.replace('#', '')
@@ -133,43 +136,97 @@ class SaprotTokenClassificationDataset(LMDBDataset):
         # 始终使用ESM3编码
         try:
             if self.esm_model is not None:
-                # 使用ESM3模型编码sequence
-                # print(f"[token分类数据集调试] 索引 {index} - Sequence: {seq[:50]}{'...' if len(seq) > 50 else ''}")
+                # 检查模型类型
+                model_type = type(self.esm_model).__name__
                 
-                # 创建ESMProtein对象并编码 (此时seq已经不包含#了)
-                protein = ESMProtein(sequence=seq)
+                # 如果有结构数据，使用ProteinChain读取PDB并编码
+                if has_structure:
+                    from esm.utils.structure.protein_chain import ProteinChain
+                    
+                    pdb_path = entry['pdb_path']
+                    # 从CSV中读取chain列，如果没有则默认为'A'
+                    chain_id = entry.get('chain', 'A')
+                    
+                    try:
+                        # 使用ProteinChain读取PDB
+                        chain = ProteinChain.from_pdb(pdb_path, chain_id=chain_id)
+                        
+                        # 创建包含结构的ESMProtein对象
+                        protein = ESMProtein(
+                            sequence=chain.sequence,
+                            coordinates=chain.atom37_positions
+                        )
+                    except Exception as pdb_error:
+                        print(f"[Token分类数据集警告] 索引 {index} - 读取PDB失败: {str(pdb_error)}，回退到序列模式")
+                        # 回退到序列模式
+                        protein = ESMProtein(sequence=seq)
+                        has_structure = False
+                else:
+                    # 创建ESMProtein对象并编码 (此时seq已经不包含#了)
+                    protein = ESMProtein(sequence=seq)
                 
                 with torch.no_grad():  # 编码时不需要梯度
                     try:
-                        # 直接使用encode方法获取encoded_protein
-                        encoded_protein = self.esm_model.encode(protein)
-                        # print(f"[token分类数据集调试] 索引 {index} - ESM3编码成功，类型: {type(encoded_protein)}")
-                        
-                        # 从encoded_protein中提取sequence token
-                        if hasattr(encoded_protein, 'sequence'):
-                            sequence_tokens = getattr(encoded_protein, 'sequence')
-                            # print(f"[token分类数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
+                        if "ESMC" in model_type:
+                            # 使用ESMC模型编码
+                            from esm.sdk.api import LogitsConfig
                             
-                            if torch.is_tensor(sequence_tokens):
-                                # print(f"[token分类数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
-                                # 将tensor移动到模型设备（通常是GPU）
+                            protein_tensor = self.esm_model.encode(protein)
+                            logits_output = self.esm_model.logits(
+                                protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
+                            )
+                            
+                            if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
+                                # embeddings shape: [seq_len, hidden_dim]
+                                seq_embeddings = logits_output.embeddings
+                                # Mean pool over hidden dimension to get [seq_len]
+                                sequence_tokens = seq_embeddings.mean(dim=-1)
+                                
                                 sequence_tokens = sequence_tokens.to(self.model_device)
-                                # 直接在数据集中进行固定长度处理
                                 sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                # print(f"[token分类数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
                             else:
-                                # 如果不是tensor，转换为tensor并处理
-                                # 在模型设备上创建tensor（GPU训练时直接在GPU上）
-                                # 确保数据类型与模型一致
-                                model_dtype = torch.long  # ESM3 tokens应该是long类型
-                                sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device, dtype=model_dtype)
-                                sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
-                                # print(f"[token分类数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                                sequence_embedding = seq
                         else:
-                            # print(f"[token分类数据集调试] 索引 {index} - encoded_protein没有sequence属性")
-                            # print(f"[token分类数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
-                            # 返回原始序列
-                            sequence_embedding = seq
+                            # 使用ESM3模型编码
+                            # 直接使用encode方法获取encoded_protein
+                            encoded_protein = self.esm_model.encode(protein)
+                            # print(f"[token分类数据集调试] 索引 {index} - ESM3编码成功，类型: {type(encoded_protein)}")
+                            
+                            # 如果有结构，优先使用structure token，否则使用sequence token
+                            if has_structure and hasattr(encoded_protein, 'structure'):
+                                structure_tokens = getattr(encoded_protein, 'structure')
+                                
+                                if torch.is_tensor(structure_tokens):
+                                    structure_tokens = structure_tokens.to(self.model_device)
+                                    sequence_embedding = self._pad_or_truncate_tensor(structure_tokens, self.fixed_seq_length)
+                                else:
+                                    structure_tokens = torch.tensor(structure_tokens, device=self.model_device)
+                                    sequence_embedding = self._pad_or_truncate_tensor(structure_tokens, self.fixed_seq_length)
+                            elif hasattr(encoded_protein, 'sequence'):
+                                # 从encoded_protein中提取sequence token
+                                sequence_tokens = getattr(encoded_protein, 'sequence')
+                                # print(f"[token分类数据集调试] 索引 {index} - 提取到sequence tokens，类型: {type(sequence_tokens)}")
+                                
+                                if torch.is_tensor(sequence_tokens):
+                                    # print(f"[token分类数据集调试] 索引 {index} - Token形状: {sequence_tokens.shape}, dtype: {sequence_tokens.dtype}, device: {sequence_tokens.device}")
+                                    # 将tensor移动到模型设备（通常是GPU）
+                                    sequence_tokens = sequence_tokens.to(self.model_device)
+                                    # 直接在数据集中进行固定长度处理
+                                    sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                    # print(f"[token分类数据集调试] 索引 {index} - 固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                                else:
+                                    # 如果不是tensor，转换为tensor并处理
+                                    # 在模型设备上创建tensor（GPU训练时直接在GPU上）
+                                    # 确保数据类型与模型一致
+                                    model_dtype = torch.long  # ESM3 tokens应该是long类型
+                                    sequence_tokens = torch.tensor(sequence_tokens, device=self.model_device, dtype=model_dtype)
+                                    sequence_embedding = self._pad_or_truncate_tensor(sequence_tokens, self.fixed_seq_length)
+                                    # print(f"[token分类数据集调试] 索引 {index} - 转换并固定长度后形状: {sequence_embedding.shape}, device: {sequence_embedding.device}")
+                            else:
+                                # print(f"[token分类数据集调试] 索引 {index} - encoded_protein没有sequence/structure属性")
+                                # print(f"[token分类数据集调试] 索引 {index} - encoded_protein属性: {[attr for attr in dir(encoded_protein) if not attr.startswith('_')]}")
+                                # 返回原始序列
+                                sequence_embedding = seq
                             
                     except Exception as encode_error:
                         # print(f"[token分类数据集调试] 索引 {index} - ESM3编码失败: {str(encode_error)}")
