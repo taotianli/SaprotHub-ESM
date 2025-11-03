@@ -323,10 +323,10 @@ try:
         fix_lora_parameters,
         load_esm3_with_lora
     )
-    print("✅ ESM3 LoRA utilities imported successfully")
+    print("ESM3 LoRA utilities imported successfully")
     LORA_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️ LoRA utilities not available: {e}")
+    print(f"Warning: LoRA utilities not available: {e}")
     LORA_AVAILABLE = False
 
 DATASET_HOME = Path(f'{root_dir}/SaprotHub/datasets')
@@ -1460,7 +1460,7 @@ def save_lora_adapter(lora_model, save_path):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
     
     lora_model.save_lora_weights(save_path)
-    print(f"✅ LoRA adapter saved to: {save_path}")
+    print(f"LoRA adapter saved to: {save_path}")
 
 
 def load_lora_adapter(lora_model, adapter_path):
@@ -1475,7 +1475,7 @@ def load_lora_adapter(lora_model, adapter_path):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
     
     lora_model.load_lora_weights(adapter_path)
-    print(f"✅ LoRA adapter loaded from: {adapter_path}")
+    print(f"LoRA adapter loaded from: {adapter_path}")
 
 
 def merge_lora_to_base(lora_model, output_path):
@@ -1490,7 +1490,7 @@ def merge_lora_to_base(lora_model, output_path):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
     
     lora_model.merge_and_save_model(output_path)
-    print(f"✅ Merged model saved to: {output_path}")
+    print(f"Merged model saved to: {output_path}")
 
 
 def is_lora_model(model):
@@ -1831,8 +1831,8 @@ def save_uploaded_file(button):
 def make_predictions(df, rows, num_labels, model_type, model_arg):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if model_type == "Official ESM3 (1.4B)":
-        print("⚠️ 警告: 官方ESM3模型目前仅支持嵌入生成，不支持分类预测。")
-        print("📝 请使用 'Trained by yourself on ColabESM3' 选项来加载您训练的分类模型。")
+        print("Warning: Official ESM3 model currently only supports embedding generation, not classification prediction.")
+        print("Please use 'Trained by yourself on ColabESM3' option to load your trained classification model.")
         # 创建一个临时的结果文件，避免下载按钮错误
         import tempfile
         temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
@@ -2000,7 +2000,7 @@ def load_data_type_from_model(model_type, model_arg):
         return metadata['training_data_type']
     else:
       # 新格式分类头权重，默认返回AA（氨基酸序列）
-      print("🔍 未找到metadata.json，假设数据类型为氨基酸序列(AA)")
+      print("metadata.json not found, assuming data type is amino acid sequence (AA)")
       return "AA"
 
 
@@ -2025,7 +2025,7 @@ def load_task_type_from_model(model_type, model_arg):
       # 新格式分类头权重，尝试从权重文件名推断任务类型
       weight_files = list(adapter_path.glob("*.pt"))
       if weight_files:
-        print("🔍 未找到metadata.json，假设任务类型为蛋白质级分类")
+        print("metadata.json not found, assuming task type is protein-level classification")
         return "Protein-level Classification"
       else:
         raise Exception("\033[31m无法确定模型任务类型，请检查模型文件!\033[0m")
@@ -2037,11 +2037,11 @@ def load_task_type_from_model(model_type, model_arg):
 def generate_download_btn(path: str):
   # 确保path是字符串类型
   if path is None:
-    print("⚠️ 警告: 没有可下载的文件")
+    print("Warning: No downloadable file")
     return HTML("<p>没有可下载的文件</p>")
 
   if not isinstance(path, str):
-    print(f"⚠️ 警告: 路径参数类型错误，期望字符串，得到 {type(path)}")
+    print(f"Warning: Path parameter type error, expected string, got {type(path)}")
     return HTML("<p>路径参数错误</p>")
 
   if root_dir == "/content":
@@ -2079,7 +2079,7 @@ def generate_download_btn(path: str):
       html_button = html_buttons.format(payload=payload,filename=filename)
       return HTML(html_button)
     except Exception as e:
-      print(f"⚠️ 警告: 无法读取文件 {path}: {e}")
+      print(f"Warning: Cannot read file {path}: {e}")
       return HTML(f"<p>无法读取文件: {e}</p>")
 
 
@@ -3060,23 +3060,23 @@ def choose_training_task():
       has_sequence_pair = "sequence_1" in df.columns and "sequence_2" in df.columns
       
       if missing_cols:
-        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少以下必需列：{', '.join(missing_cols)}")
-        red_print(f"\n📋 Protein-protein任务需要以下列：")
-        red_print(f"   - protein_1, protein_2 (结构文件名) 或 sequence_1, sequence_2 (序列)")
-        red_print(f"   - chain_1, chain_2 (链ID)")
-        red_print(f"   - label (标签)")
-        red_print(f"   - stage (可选，默认自动划分)")
-        red_print(f"\n💡 提示：如果你的数据是单个蛋白质数据（只有 protein/sequence 列），")
-        red_print(f"   请选择 'Protein-level Classification' 或 'Protein-level Regression' 任务！")
+        red_print(f"Error: You selected '{task_type.value}' task, but data is missing required columns: {', '.join(missing_cols)}")
+        red_print(f"\nProtein-protein tasks require the following columns:")
+        red_print(f"   - protein_1, protein_2 (structure filenames) or sequence_1, sequence_2 (sequences)")
+        red_print(f"   - chain_1, chain_2 (chain IDs)")
+        red_print(f"   - label (labels)")
+        red_print(f"   - stage (optional, auto-split by default)")
+        red_print(f"\nTip: If your data is single protein data (only protein/sequence columns),")
+        red_print(f"   please select 'Protein-level Classification' or 'Protein-level Regression' task!")
         return
       
       if not has_protein_pair and not has_sequence_pair:
-        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少蛋白质对数据列！")
-        red_print(f"\n📋 需要以下列之一：")
-        red_print(f"   - protein_1, protein_2 (用于结构数据)")
-        red_print(f"   - sequence_1, sequence_2 (用于序列数据)")
-        red_print(f"\n💡 提示：如果你的数据是单个蛋白质数据（只有 protein/sequence 列），")
-        red_print(f"   请选择 'Protein-level Classification' 或 'Protein-level Regression' 任务！")
+        red_print(f"Error: You selected '{task_type.value}' task, but data is missing protein pair columns!")
+        red_print(f"\nOne of the following column sets is required:")
+        red_print(f"   - protein_1, protein_2 (for structure data)")
+        red_print(f"   - sequence_1, sequence_2 (for sequence data)")
+        red_print(f"\nTip: If your data is single protein data (only protein/sequence columns),")
+        red_print(f"   please select 'Protein-level Classification' or 'Protein-level Regression' task!")
         return
     else:
       # 单蛋白质任务需要的列
@@ -3084,20 +3084,20 @@ def choose_training_task():
       has_sequence = "sequence" in df.columns
       
       if not has_protein and not has_sequence:
-        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少蛋白质数据列！")
-        red_print(f"\n📋 单蛋白质任务需要以下列：")
-        red_print(f"   - protein (结构文件名) 或 sequence (序列)")
-        red_print(f"   - label (标签)")
-        red_print(f"   - stage (可选，默认自动划分)")
-        red_print(f"\n💡 提示：如果你的数据是蛋白质对数据（有 protein_1/protein_2 列），")
-        red_print(f"   请选择 'Protein-protein Classification' 或 'Protein-protein Regression' 任务！")
+        red_print(f"Error: You selected '{task_type.value}' task, but data is missing protein data columns!")
+        red_print(f"\nSingle protein tasks require the following columns:")
+        red_print(f"   - protein (structure filename) or sequence (sequence)")
+        red_print(f"   - label (labels)")
+        red_print(f"   - stage (optional, auto-split by default)")
+        red_print(f"\nTip: If your data is protein pair data (with protein_1/protein_2 columns),")
+        red_print(f"   please select 'Protein-protein Classification' or 'Protein-protein Regression' task!")
         return
       
       # 检查是否误用了pair数据格式
       if "protein_1" in df.columns or "protein_2" in df.columns or "sequence_1" in df.columns or "sequence_2" in df.columns:
-        red_print(f"❌ 错误：你的数据看起来是蛋白质对数据格式（包含 protein_1/protein_2 或 sequence_1/sequence_2 列），")
-        red_print(f"   但你选择了单蛋白质任务 '{task_type.value}'！")
-        red_print(f"\n💡 提示：请选择 'Protein-protein Classification' 或 'Protein-protein Regression' 任务！")
+        red_print(f"Error: Your data appears to be protein pair format (contains protein_1/protein_2 or sequence_1/sequence_2 columns),")
+        red_print(f"   but you selected single protein task '{task_type.value}'!")
+        red_print(f"\nTip: Please select 'Protein-protein Classification' or 'Protein-protein Regression' task!")
         return
     
     # ESM3结构数据不需要重命名protein列（保留PDB文件名）
@@ -3498,17 +3498,17 @@ library_name: peft
         # print(f"✅ 复制并包含ESM3权重文件: {weight_file_name}")
         # print(f"📁 复制后文件大小: {local_weight_path.stat().st_size / (1024 * 1024):.2f} MB")
     else:
-        print(f"⚠️ Warning: ESM3 weight file not found: {weight_file_path}")
+        print(f"Warning: ESM3 weight file not found: {weight_file_path}")
         # 尝试查找其他可能的.pt文件
         pt_files_found = list(save_path.glob("*.pt"))
         parent_pt_files = list(parent_dir.glob("*.pt"))
-        print(f"🔍 模型目录中的.pt文件: {[f.name for f in pt_files_found]}")
-        print(f"🔍 上级目录中的.pt文件: {[f.name for f in parent_pt_files]}")
+        print(f".pt files in model directory: {[f.name for f in pt_files_found]}")
+        print(f".pt files in parent directory: {[f.name for f in parent_pt_files]}")
 
         # 先检查模型目录中的.pt文件
         for pt_file in pt_files_found:
             files_to_zip.append(pt_file.name)
-            print(f"✅ Found weight file in model dir: {pt_file.name}")
+            print(f"Found weight file in model dir: {pt_file.name}")
             break
         else:
             # 如果模型目录没有，尝试从上级目录复制
@@ -3517,7 +3517,7 @@ library_name: peft
                     local_weight_path = save_path / pt_file.name
                     shutil.copy2(pt_file, local_weight_path)
                     files_to_zip.append(pt_file.name)
-                    print(f"✅ 从上级目录复制权重文件: {pt_file.name}")
+                    print(f"Copied weight file from parent directory: {pt_file.name}")
                     break
 
     # 构建zip命令
@@ -3535,7 +3535,7 @@ library_name: peft
             # print(f"✅ zip文件创建成功: {adapter_zip}")
             # print(f"📊 zip文件大小: {zip_size:.2f} MB")
         else:
-            print(f"❌ zip文件创建失败: {adapter_zip}")
+            print(f"Failed to create zip file: {adapter_zip}")
     else:
         print("Warning: No model files found to package!")
 
@@ -3548,7 +3548,7 @@ library_name: peft
         file_download(adapter_zip)
         # print(f"✅ 下载命令已执行")
     else:
-        print(f"❌ zip文件不存在，无法下载: {adapter_zip}")
+        print(f"Zip file does not exist, cannot download: {adapter_zip}")
 
     finish_hint = HTML(markdown.markdown(
         f"## The training is completed, you can then:\n\n"
@@ -5474,8 +5474,8 @@ def process_csv_for_esm3_training(csv_path, model_type, model_arg):
         else:
             raise ValueError("CSV文件必须包含 'protein' 列（单序列）或 'protein_1', 'protein_2' 列（双序列）")
 
-        print(f"处理CSV文件: {csv_path}")
-        print(f"包含 {len(sequences)} 个序列样本")
+        print(f"Processing CSV file: {csv_path}")
+        print(f"Contains {len(sequences)} sequence samples")
 
         # 对于ESM3，我们直接返回序列数据，不需要特殊的编码预处理
         # 编码将在训练过程中进行

@@ -139,7 +139,7 @@ class SaprotRegressionDataset(LMDBDataset):
 							coordinates=chain.atom37_positions
 						)
 					except Exception as pdb_error:
-						print(f"[回归数据集警告] 索引 {index} - 读取PDB失败: {str(pdb_error)}，回退到序列模式")
+						print(f"[Regression Dataset Warning] Index {index} - Failed to read PDB: {str(pdb_error)}, falling back to sequence mode")
 						# 回退到序列模式
 						protein = ESMProtein(sequence=seq)
 						has_structure = False

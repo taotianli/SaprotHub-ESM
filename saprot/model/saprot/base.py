@@ -341,10 +341,10 @@ class SaprotBaseModel(AbstractModel):
 
         # 冻结骨干网络（如果需要）
         if self.freeze_backbone:
-            print(f"❄️ 冻结ESM3骨干网络参数...")
+            print(f"Freezing ESM3 backbone parameters...")
             for param in self.model.parameters():
                 param.requires_grad = False
-            print(f"❄️ 骨干网络已冻结")
+            print(f"Backbone frozen")
 
         # # Disable the pooling layer
         # backbone = getattr(self.model, "esm", self.model.bert)

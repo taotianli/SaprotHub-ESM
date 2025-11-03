@@ -107,7 +107,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                             coordinates=chain_1.atom37_positions
                         )
                     except Exception as pdb_error:
-                        print(f"[Pair回归数据集警告] 索引 {index} - 读取PDB1失败: {str(pdb_error)}，回退到序列模式")
+                        print(f"[Pair Regression Dataset Warning] Index {index} - Failed to read PDB1: {str(pdb_error)}, falling back to sequence mode")
                         protein_1 = ESMProtein(sequence=seq_1)
                         has_structure_1 = False
                 else:
@@ -131,7 +131,7 @@ class SaprotPairRegressionDataset(LMDBDataset):
                             coordinates=chain_2.atom37_positions
                         )
                     except Exception as pdb_error:
-                        print(f"[Pair回归数据集警告] 索引 {index} - 读取PDB2失败: {str(pdb_error)}，回退到序列模式")
+                        print(f"[Pair Regression Dataset Warning] Index {index} - Failed to read PDB2: {str(pdb_error)}, falling back to sequence mode")
                         protein_2 = ESMProtein(sequence=seq_2)
                         has_structure_2 = False
                 else:
