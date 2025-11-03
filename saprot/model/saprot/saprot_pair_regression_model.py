@@ -693,6 +693,9 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 根据调度器名称选择正确的类
         if lr_scheduler_name == "ConstantLRScheduler":
             lr_scheduler_cls = ConstantLRScheduler
+            # ConstantLRScheduler只接受特定参数
+            allowed_keys = {'last_epoch', 'verbose', 'init_lr'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "CosineAnnealingLRScheduler":
             lr_scheduler_cls = CosineAnnealingLRScheduler
         elif lr_scheduler_name == "Esm2LRScheduler":
@@ -703,6 +706,9 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         else:
             # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
+            # 过滤参数
+            allowed_keys = {'last_epoch', 'verbose', 'init_lr'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
 
