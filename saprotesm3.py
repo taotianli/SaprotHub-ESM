@@ -3018,6 +3018,57 @@ def choose_training_task():
         else:
             raise e
     
+    # 数据格式验证：检查列是否与任务类型匹配
+    if "Protein-protein" in task_type.value:
+      # Protein-protein任务需要的列（chain_1和chain_2是必需的）
+      required_cols_pair = ["chain_1", "chain_2"]
+      missing_cols = [col for col in required_cols_pair if col not in df.columns]
+      
+      # 检查是否有protein_1/protein_2或其他数据列
+      has_protein_pair = "protein_1" in df.columns and "protein_2" in df.columns
+      has_sequence_pair = "sequence_1" in df.columns and "sequence_2" in df.columns
+      
+      if missing_cols:
+        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少以下必需列：{', '.join(missing_cols)}")
+        red_print(f"\n📋 Protein-protein任务需要以下列：")
+        red_print(f"   - protein_1, protein_2 (结构文件名) 或 sequence_1, sequence_2 (序列)")
+        red_print(f"   - chain_1, chain_2 (链ID)")
+        red_print(f"   - label (标签)")
+        red_print(f"   - stage (可选，默认自动划分)")
+        red_print(f"\n💡 提示：如果你的数据是单个蛋白质数据（只有 protein/sequence 列），")
+        red_print(f"   请选择 'Protein-level Classification' 或 'Protein-level Regression' 任务！")
+        return
+      
+      if not has_protein_pair and not has_sequence_pair:
+        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少蛋白质对数据列！")
+        red_print(f"\n📋 需要以下列之一：")
+        red_print(f"   - protein_1, protein_2 (用于结构数据)")
+        red_print(f"   - sequence_1, sequence_2 (用于序列数据)")
+        red_print(f"\n💡 提示：如果你的数据是单个蛋白质数据（只有 protein/sequence 列），")
+        red_print(f"   请选择 'Protein-level Classification' 或 'Protein-level Regression' 任务！")
+        return
+    else:
+      # 单蛋白质任务需要的列
+      has_protein = "protein" in df.columns
+      has_sequence = "sequence" in df.columns
+      
+      if not has_protein and not has_sequence:
+        red_print(f"❌ 错误：你选择了 '{task_type.value}' 任务，但数据缺少蛋白质数据列！")
+        red_print(f"\n📋 单蛋白质任务需要以下列：")
+        red_print(f"   - protein (结构文件名) 或 sequence (序列)")
+        red_print(f"   - label (标签)")
+        red_print(f"   - stage (可选，默认自动划分)")
+        red_print(f"\n💡 提示：如果你的数据是蛋白质对数据（有 protein_1/protein_2 列），")
+        red_print(f"   请选择 'Protein-protein Classification' 或 'Protein-protein Regression' 任务！")
+        return
+      
+      # 检查是否误用了pair数据格式
+      if "protein_1" in df.columns or "protein_2" in df.columns or "sequence_1" in df.columns or "sequence_2" in df.columns:
+        red_print(f"❌ 错误：你的数据看起来是蛋白质对数据格式（包含 protein_1/protein_2 或 sequence_1/sequence_2 列），")
+        red_print(f"   但你选择了单蛋白质任务 '{task_type.value}'！")
+        red_print(f"\n💡 提示：请选择 'Protein-protein Classification' 或 'Protein-protein Regression' 任务！")
+        return
+    
     # ESM3结构数据不需要重命名protein列（保留PDB文件名）
     # 只有非ESM3或序列数据才需要重命名为sequence
     if data_type.value == "protein structure" and model_type_value in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:

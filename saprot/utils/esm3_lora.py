@@ -179,8 +179,6 @@ class ESM3LoRAWrapper(nn.Module):
     
     def _freeze_original_parameters(self):
         """Freeze all original parameters, keep only LoRA parameters trainable"""
-        print("❄️ Freezing original ESM3 parameters...")
-        
         for name, param in self.esm3_model.named_parameters():
             param.requires_grad = False
         
