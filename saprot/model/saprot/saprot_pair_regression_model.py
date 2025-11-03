@@ -163,7 +163,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
                 hidden_size = 960
             else:  # esm3
                 hidden_size = 2560
-            print(f"[DEBUG] Pair Regressor using explicit base_model_type: {self.base_model_type}, hidden_size: {hidden_size}")
+            # print(f"[DEBUG] Pair Regressor using explicit base_model_type: {self.base_model_type}, hidden_size: {hidden_size}")
         else:
             # 回退到自动检测
             actual_model = self.model
@@ -197,7 +197,7 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         for param in self.regression_head.parameters():
             param.requires_grad = True
         
-        print(f"Pair regressor created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
+        # print(f"Pair regressor created with hidden_size={hidden_size} (single={hidden_size//2}) for {model_type}")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
