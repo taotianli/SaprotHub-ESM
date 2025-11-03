@@ -78,7 +78,10 @@ class SimpleRegressionMetrics:
         # 使用numpy计算更准确的spearman
         try:
             from scipy.stats import spearmanr
-            corr, _ = spearmanr(preds.numpy(), targets.numpy())
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=RuntimeWarning)
+                corr, _ = spearmanr(preds.numpy(), targets.numpy())
             # 确保返回Python float而不是numpy.float64
             # 检查是否为nan，如果是则返回0.0
             if float(corr) != float(corr):  # NaN check (NaN != NaN)
