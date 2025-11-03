@@ -1908,8 +1908,39 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         logits = []
         pred_labels = []
         if task_type in ["pair_classification", "pair_regression"]:
-            print("Warning: Pair prediction tasks are not yet supported in this interface")
-            return None, None
+            # Handle pair tasks
+            print(f"Processing pair prediction task...")
+            for pair_data in tqdm(rows, desc="Predicting"):
+                with torch.no_grad():
+                    # pair_data should be a tuple of (seq1, seq2)
+                    if isinstance(pair_data, (list, tuple)) and len(pair_data) == 2:
+                        seq1, seq2 = pair_data
+                        # Ensure inputs are float32 if they're tensors
+                        if isinstance(seq1, torch.Tensor):
+                            seq1 = seq1.float()
+                        if isinstance(seq2, torch.Tensor):
+                            seq2 = seq2.float()
+                        pred = model(seq1, seq2, device=device)
+                    else:
+                        # Fallback: try to pass the data as is
+                        pred = model(pair_data, device=device)
+                
+                if task_type == "pair_regression":
+                    # Handle regression output
+                    if isinstance(pred, torch.Tensor):
+                        pred_value = pred.squeeze().cpu().item()
+                    else:
+                        pred_value = float(pred)
+                    pred_labels.append(pred_value)
+                else:  # pair_classification
+                    if isinstance(pred, torch.Tensor):
+                        # Process classification predictions
+                        softmax_probs = pred.softmax(dim=-1).cpu().numpy()
+                        logits.append(softmax_probs.tolist())
+                        pred_labels.append(pred.argmax(dim=-1).cpu().numpy().item())
+                    else:
+                        logits.append([1.0])
+                        pred_labels.append(0)
         else:
             for sa_seq in tqdm(rows, desc="Predicting"):
                 with torch.no_grad():
