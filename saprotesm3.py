@@ -1841,34 +1841,47 @@ def load_single_model(model_id, num_labels, model_type_source="Shared by peers o
     
     # Determine config path (ESM3 or ESMC)
     config_path = "esm3-open"
+    base_model_type = "esm3"  # 默认
     try:
         checkpoint = torch.load(str(weight_files[0]), map_location='cpu')
-        if 'base_model' in checkpoint and 'esmc' in checkpoint['base_model'].lower():
+        # 优先从checkpoint中获取base_model_type
+        if 'base_model_type' in checkpoint:
+            base_model_type = checkpoint['base_model_type']
+            if base_model_type == "esmc":
+                config_path = "esmc_300m"
+            else:
+                config_path = "esm3-open"
+        # 回退：尝试从checkpoint中获取base model信息
+        elif 'base_model' in checkpoint and 'esmc' in checkpoint['base_model'].lower():
             config_path = "esmc_300m"
+            base_model_type = "esmc"
         elif 'config_path' in checkpoint:
             config_path = checkpoint['config_path']
+            if "esmc" in config_path.lower():
+                base_model_type = "esmc"
     except:
         pass
     
     if 'esmc' in str(model_path).lower():
         config_path = "esmc_300m"
+        base_model_type = "esmc"
     
     # Create model based on task type
     if task_type == "classification":
         from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
-        model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path)
+        model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
     elif task_type == "regression":
         from saprot.model.saprot.saprot_regression_model import SaprotRegressionModel
-        model = SaprotRegressionModel(config_path=config_path)
+        model = SaprotRegressionModel(config_path=config_path, base_model_type=base_model_type)
     elif task_type == "token_classification":
         from saprot.model.saprot.saprot_token_classification_model import SaprotTokenClassificationModel
-        model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path)
+        model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
     elif task_type == "pair_classification":
         from saprot.model.saprot.saprot_pair_classification_model import SaprotPairClassificationModel
-        model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path)
+        model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
     elif task_type == "pair_regression":
         from saprot.model.saprot.saprot_pair_regression_model import SaprotPairRegressionModel
-        model = SaprotPairRegressionModel(config_path=config_path)
+        model = SaprotPairRegressionModel(config_path=config_path, base_model_type=base_model_type)
     else:
         raise ValueError(f"Unknown task type: {task_type}")
     
@@ -2002,44 +2015,56 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
             # 检查模型是否是ESMC
             # 从weight文件或metadata中判断模型类型
             config_path = "esm3-open"  # 默认使用ESM3
+            base_model_type = "esm3"  # 默认
             try:
                 import torch as torch_load
                 checkpoint = torch_load.load(str(weight_files[0]), map_location='cpu')
-                # 尝试从checkpoint中获取base model信息
-                if 'base_model' in checkpoint:
+                # 优先从checkpoint中获取base_model_type
+                if 'base_model_type' in checkpoint:
+                    base_model_type = checkpoint['base_model_type']
+                    if base_model_type == "esmc":
+                        config_path = "esmc_300m"
+                    else:
+                        config_path = "esm3-open"
+                # 回退：尝试从checkpoint中获取base model信息
+                elif 'base_model' in checkpoint:
                     if 'esmc' in checkpoint['base_model'].lower():
                         config_path = "esmc_300m"
+                        base_model_type = "esmc"
                 elif 'config_path' in checkpoint:
                     config_path = checkpoint['config_path']
+                    if "esmc" in config_path.lower():
+                        base_model_type = "esmc"
             except:
                 pass
 
             # 如果模型名称包含ESMC，也使用ESMC
             if 'esmc' in str(model_path).lower():
                 config_path = "esmc_300m"
+                base_model_type = "esmc"
 
-            print(f"Using base model: {config_path}")
+            print(f"Using base model: {config_path} (type: {base_model_type})")
 
             # Select the appropriate model based on task type
             if task_type == "classification":
                 from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
-                model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path)
+                model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
                 print(f"Using SaprotClassificationModel")
             elif task_type == "regression":
                 from saprot.model.saprot.saprot_regression_model import SaprotRegressionModel
-                model = SaprotRegressionModel(config_path=config_path)
+                model = SaprotRegressionModel(config_path=config_path, base_model_type=base_model_type)
                 print(f"Using SaprotRegressionModel")
             elif task_type == "token_classification":
                 from saprot.model.saprot.saprot_token_classification_model import SaprotTokenClassificationModel
-                model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path)
+                model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
                 print(f"Using SaprotTokenClassificationModel")
             elif task_type == "pair_classification":
                 from saprot.model.saprot.saprot_pair_classification_model import SaprotPairClassificationModel
-                model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path)
+                model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path, base_model_type=base_model_type)
                 print(f"Using SaprotPairClassificationModel")
             elif task_type == "pair_regression":
                 from saprot.model.saprot.saprot_pair_regression_model import SaprotPairRegressionModel
-                model = SaprotPairRegressionModel(config_path=config_path)
+                model = SaprotPairRegressionModel(config_path=config_path, base_model_type=base_model_type)
                 print(f"Using SaprotPairRegressionModel")
             else:
                 raise ValueError(f"Unknown task type: {task_type}")

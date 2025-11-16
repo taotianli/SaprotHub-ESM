@@ -103,17 +103,17 @@ class SaprotTokenClassificationDataset(LMDBDataset):
             seq = "".join(seq)
         
         # Debug: Print original data for first item
-        if not hasattr(self, '_debug_printed'):
-            print(f"\n[DATASET DEBUG] First item:")
-            print(f"  entry['seq'] type: {type(entry['seq'])}")
-            print(f"  entry['label'] type: {type(entry['label'])}")
-            print(f"  Original seq length: {len(seq)}")
-            print(f"  Original label length: {len(label)}")
-            print(f"  Seq contains #: {'#' in seq}")
-            print(f"  First 50 chars of seq: {seq[:50]}")
-            if isinstance(label, list) and len(label) > 0:
-                print(f"  First 10 labels: {label[:10]}")
-            self._debug_printed = True
+        # if not hasattr(self, '_debug_printed'):
+        #     print(f"\n[DATASET DEBUG] First item:")
+        #     print(f"  entry['seq'] type: {type(entry['seq'])}")
+        #     print(f"  entry['label'] type: {type(entry['label'])}")
+        #     print(f"  Original seq length: {len(seq)}")
+        #     print(f"  Original label length: {len(label)}")
+        #     print(f"  Seq contains #: {'#' in seq}")
+        #     print(f"  First 50 chars of seq: {seq[:50]}")
+        #     if isinstance(label, list) and len(label) > 0:
+        #         print(f"  First 10 labels: {label[:10]}")
+        #     self._debug_printed = True
         
         # 重要发现: 数据源中 entry['seq'] 可能是 "M#T#L#..." 格式 (带#的foldseek序列)
         # 而 entry['label'] 只对应氨基酸位置,不包括#位置
