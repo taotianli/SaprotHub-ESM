@@ -689,15 +689,15 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
         except Exception as e:
             print(f"Failed to save regression head weights: {str(e)}")
-            # 尝试保存到当前目录作为备份
+            # Try saving to current directory as backup
             try:
                 fallback_path = os.path.join(os.getcwd(), 'regression_head_checkpoint.pt')
                 if hasattr(self, 'regression_head'):
                     state_dict = {"regression_head": self.regression_head.state_dict()}
                     torch.save(state_dict, fallback_path)
-                    print(f"Fallback save successful: {fallback_path}")
+                    print(f"Backup save successful: {fallback_path}")
             except Exception as e2:
-                print(f"Fallback save also failed: {str(e2)}")
+                print(f"Backup save also failed: {str(e2)}")
                 raise e
 
     def load_checkpoint(self, checkpoint_path: str) -> None:

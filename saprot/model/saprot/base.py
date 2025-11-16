@@ -479,14 +479,14 @@ class SaprotBaseModel(AbstractModel):
             # print(f"模型checkpoint已保存到: {save_path}")
             
         except Exception as e:
-            print(f"保存checkpoint失败: {str(e)}")
+            print(f"Failed to save checkpoint: {str(e)}")
             # Try to save to current directory as fallback
             try:
                 fallback_path = os.path.join(os.getcwd(), 'model_checkpoint.pt')
                 super().save_checkpoint(fallback_path, save_info, save_weights_only)
-                print(f"fallback checkpoint已保存到: {fallback_path}")
+                print(f"Fallback checkpoint saved to: {fallback_path}")
             except Exception as e2:
-                print(f"fallback保存也失败: {str(e2)}")
+                print(f"Fallback save also failed: {str(e2)}")
                 raise e
     
     def output_test_metrics(self, log_dict):

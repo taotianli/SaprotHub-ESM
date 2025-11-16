@@ -1,7 +1,8 @@
-#@title **Step 2: Click the run-button to use ColabESM3**
+#@title **Click the run-button to use ColabESM3**
 
 #@markdown ### Hint:
-#@markdown - It takes 3-8 minutes for the initial installation.
+#@markdown - It takes 1-2 minutes for the initial installation.
+#@markdown - The ESM3 model need the Huggingface Token to access. Please apply your own token at Huggingface.
 #@markdown - The run-button's "inactive" state (<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/run_button.png?raw=true' height='25px' width='25px' align='center'>) indicates the program is on standby and awaits your click to start. When clicked, the run-button transforms to show a dynamic loading animation (<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/run_button_working.png?raw=true' height='25px' width='25px' align='center'>), confirming the program is launching. Once the interface loads completely, you can begin using the program.
 #@markdown ### <font color=red> Important: </font>
 #@markdown - <font color=red>If changing runtime type or encountering connection issues, first click the run-button to stop the program. Once the run-button transforms from (<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/run_button_working.png?raw=true' height='25px' width='25px' align='center'>) to (<img src='https://github.com/westlake-repl/SaProtHub/blob/dev/Figure/run_button.png?raw=true' height='25px' width='25px' align='center'>), you can reconnect and restart, see [here](https://github.com/westlake-repl/SaprotHub/wiki/SaprotHub-v2-(latest)#2-how-can-i-reconnect-when-encountering-connection-issues).</font>
@@ -12,214 +13,216 @@
 # %load_ext autoreload
 # %autoreload 2
 
+
+
 import os
-# Check whether the server is local or from google cloudA model id example
+
 root_dir = os.getcwd()
+# print("Installing ESM3...")
+os.system("pip install esm")
+try:
+  import sys
+  import subprocess
+  sys.path.append(f"{root_dir}/SaprotHub")
+  import saprot
 
-from google.colab import output
-# output.enable_custom_widget_manager()
+  try:
+      result = subprocess.run(
+          [sys.executable, "-m", "pip", "show", "saprot"],
+          capture_output=True,
+          text=True
+      )
 
-# try:
-#   import sys
-#   import subprocess
-#   sys.path.append(f"{root_dir}/SaprotHub")
-#   import saprot
+      is_fork_installed = "Tianli" in result.stdout
 
-#   try:
-#       result = subprocess.run(
-#           [sys.executable, "-m", "pip", "show", "saprot"],
-#           capture_output=True,
-#           text=True
-#       )
+      if not is_fork_installed:
+          print('重新安装 SeProt...')
+          os.system(f"rm -rf {root_dir}/SaprotHub")
+          # !rm -rf /content/SaprotHub/
 
-#       is_fork_installed = "Tianli" in result.stdout
+          os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+          os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
-#       if not is_fork_installed:
-#           print('重新安装 SeProt...')
-#           os.system(f"rm -rf {root_dir}/SaprotHub")
-#           # !rm -rf /content/SaprotHub/
+          # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+          os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+          # !pip install -r /content/SaprotHub/requirements.txt
 
-#           os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-#           os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
-
-#           # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-#           os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-#           # !pip install -r /content/SaprotHub/requirements.txt
-
-#           os.system(f"pip install {root_dir}/SaprotHub")
+          os.system(f"pip install {root_dir}/SaprotHub")
 
 
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-#           os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+          os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-#           os.system("pip install jupyter_ui_poll")
-#           os.system("pip uninstall -y torchao")
-#           print(f"SaProt is installed successfully!")
-#       else:
-#           print(f"SaProt is installed successfully!")
-#   except Exception as e:
-#       os.system(f"rm -rf {root_dir}/SaprotHub")
-#       # !rm -rf /content/SaprotHub/
+          os.system("pip install jupyter_ui_poll")
+          os.system("pip uninstall -y torchao")
+          print(f"SaProt is installed successfully!")
+      else:
+          print(f"SaProt is installed successfully!")
+  except Exception as e:
+      os.system(f"rm -rf {root_dir}/SaprotHub")
+      # !rm -rf /content/SaprotHub/
 
-#       os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-#       os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
+      os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+      os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
-#       # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-#       os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-#       # !pip install -r /content/SaprotHub/requirements.txt
+      # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+      os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+      # !pip install -r /content/SaprotHub/requirements.txt
 
-#       os.system(f"pip install {root_dir}/SaprotHub")
+      os.system(f"pip install {root_dir}/SaprotHub")
 
 
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-#       os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+      os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-#       os.system("pip install jupyter_ui_poll")
-#       os.system("pip uninstall -y torchao")
-#       print(f"SaProt is installed successfully!")
+      os.system("pip install jupyter_ui_poll")
+      os.system("pip uninstall -y torchao")
+      print(f"SaProt is installed successfully!")
 
-#   os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
+  os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
 
-#   ################################################################################
-#   ################################################################################
-#   ################################## global ######################################
-#   ################################################################################
-#   ################################################################################
+  ################################################################################
+  ################################################################################
+  ################################## global ######################################
+  ################################################################################
+  ################################################################################
 
-#   import ipywidgets
-#   import pandas as pd
-#   import torch
-#   import numpy as np
-#   import lmdb
-#   import base64
-#   import copy
-#   import os
-#   import json
-#   import zipfile
-#   import yaml
-#   import argparse
-#   import pprint
-#   import subprocess
-#   import py3Dmol
-#   import matplotlib.pyplot as plt
-#   import shutil
-#   import torch.nn.functional as F
-#   import warnings
-#   warnings.filterwarnings("ignore", category=FutureWarning)
+  import ipywidgets
+  import pandas as pd
+  import torch
+  import numpy as np
+  import lmdb
+  import base64
+  import copy
+  import os
+  import json
+  import zipfile
+  import yaml
+  import argparse
+  import pprint
+  import subprocess
+  import py3Dmol
+  import matplotlib.pyplot as plt
+  import shutil
+  import torch.nn.functional as F
+  import warnings
+  warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 
-#   from loguru import logger
-#   from easydict import EasyDict
-#   from colorama import init, Fore, Back, Style
-#   from IPython.display import clear_output
-#   from huggingface_hub import snapshot_download
-#   from ipywidgets import HTML
-#   from IPython.display import display
-#   from google.colab import widgets
-#   from google.colab import files
-#   from pathlib import Path
-#   from tqdm import tqdm
-#   from datetime import datetime
-#   # from transformers import AutoTokenizer  # ESM3不需要tokenizer
-#   # from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
-#   # from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
-#   from string import ascii_uppercase,ascii_lowercase
-#   from saprot.utils.mpr import MultipleProcessRunnerSimplifier
-#   from saprot.data.parse import get_chain_ids
-#   # from saprot.scripts.training import my_load_model
-#   from safetensors import safe_open
+  from loguru import logger
+  from easydict import EasyDict
+  from colorama import init, Fore, Back, Style
+  from IPython.display import clear_output
+  from huggingface_hub import snapshot_download
+  from ipywidgets import HTML
+  from IPython.display import display
+  from google.colab import widgets
+  from google.colab import files
+  from pathlib import Path
+  from tqdm import tqdm
+  from datetime import datetime
+  # from transformers import AutoTokenizer  # ESM3不需要tokenizer
+  # from transformers.models.esm.openfold_utils.protein import to_pdb, Protein as OFProtein
+  # from transformers.models.esm.openfold_utils.feats import atom14_to_atom37
+  from string import ascii_uppercase,ascii_lowercase
+  from saprot.utils.mpr import MultipleProcessRunnerSimplifier
+  from saprot.data.parse import get_chain_ids
+  # from saprot.scripts.training import my_load_model
+  from safetensors import safe_open
 
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
-#   os.system("pip install jupyter_ui_poll")
-#   os.system("pip uninstall -y torchao")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+  os.system("pip install jupyter_ui_poll")
+  os.system("pip uninstall -y torchao")
 
-#   print("SaProt is installed successfully!")
+  print("SaProt is installed successfully!")
 
-# except Exception:
-#   print("Installing SaProt...")
-#   os.system(f"rm -rf {root_dir}/SaprotHub")
-#     # !rm -rf /content/SaprotHub/
+except Exception:
+  # print("Installing SaProt...")
+  os.system(f"rm -rf {root_dir}/SaprotHub")
+    # !rm -rf /content/SaprotHub/
 
-#   os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
-#   os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
+  os.system("git clone https://github.com/taotianli/SaprotHub-ESM.git > /dev/null 2>&1")
+  os.system(f"mv {root_dir}/SaprotHub-ESM {root_dir}/SaprotHub")
 
-#   # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
-#   os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
-#   # !pip install -r /content/SaprotHub/requirements.txt
+  # !pip install /content/SaprotHub/saprot-0.4.7-py3-none-any.whl
+  os.system(f"pip install -r {root_dir}/SaprotHub/requirements.txt")
+  # !pip install -r /content/SaprotHub/requirements.txt
 
-#   os.system(f"pip install {root_dir}/SaprotHub")
+  os.system(f"pip install {root_dir}/SaprotHub")
 
 
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/output")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
-#   os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/LMDB")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/bin")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/output")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/datasets")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/regression/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/token_classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_classification/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/adapters/pair_regression/Local")
+  os.system(f"mkdir -p {root_dir}/SaprotHub/structures")
 
-#   os.system("pip install jupyter_ui_poll")
-#   os.system("pip uninstall -y torchao")
+  os.system("pip install jupyter_ui_poll")
+  os.system("pip uninstall -y torchao")
 
-#   # !mkdir -p /content/SaprotHub/LMDB
-#   # !mkdir -p /content/SaprotHub/bin
-#   # !mkdir -p /content/SaprotHub/output
-#   # !mkdir -p /content/SaprotHub/datasets
-#   # !mkdir -p /content/SaprotHub/adapters/classification/Local
-#   # !mkdir -p /content/SaprotHub/adapters/regression/Local
-#   # !mkdir -p /content/SaprotHub/adapters/token_classification/Local
-#   # !mkdir -p /content/SaprotHub/adapters/pair_classification/Local
-#   # !mkdir -p /content/SaprotHub/adapters/pair_regression/Local
-#   # !mkdir -p /content/SaprotHub/structures
+  # !mkdir -p /content/SaprotHub/LMDB
+  # !mkdir -p /content/SaprotHub/bin
+  # !mkdir -p /content/SaprotHub/output
+  # !mkdir -p /content/SaprotHub/datasets
+  # !mkdir -p /content/SaprotHub/adapters/classification/Local
+  # !mkdir -p /content/SaprotHub/adapters/regression/Local
+  # !mkdir -p /content/SaprotHub/adapters/token_classification/Local
+  # !mkdir -p /content/SaprotHub/adapters/pair_classification/Local
+  # !mkdir -p /content/SaprotHub/adapters/pair_regression/Local
+  # !mkdir -p /content/SaprotHub/structures
 
-#   # !pip install gdown==v4.6.3 --force-reinstall --quiet
-#   # os.system(
-#   #   f"wget 'https://drive.usercontent.google.com/download?id=1B_9t3n_nlj8Y3Kpc_mMjtMdY0OPYa7Re&export=download&authuser=0' -O {root_dir}/SaprotHub/bin/foldseek"
-#   # )
+  # !pip install gdown==v4.6.3 --force-reinstall --quiet
+  # os.system(
+  #   f"wget 'https://drive.usercontent.google.com/download?id=1B_9t3n_nlj8Y3Kpc_mMjtMdY0OPYa7Re&export=download&authuser=0' -O {root_dir}/SaprotHub/bin/foldseek"
+  # )
 
-#   os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
-#   # !chmod +x /content/SaprotHub/bin/foldseek
-#   import sys
-#   sys.path.append(f"{root_dir}/SaprotHub")
+  os.system(f"chmod +x {root_dir}/SaprotHub/bin/*")
+  # !chmod +x /content/SaprotHub/bin/foldseek
+  import sys
+  sys.path.append(f"{root_dir}/SaprotHub")
 
-#   # IMPORTANT!!!! Used to fix the error caused by the mismatch of the versions of third-party libraries!!
-#   import matplotlib.pyplot as plt
-#   fig, ax = plt.subplots(figsize=(0.01,0.01))
-#   ax.spines['right'].set_visible(False)
-#   ax.spines['left'].set_visible(False)
-#   ax.spines['bottom'].set_visible(False)
-#   plt.xticks([])
-#   plt.tick_params(axis='y',colors='white')
-#   plt.show()
+# Clear installation outputs before showing login interface
+from IPython.display import clear_output
+clear_output(wait=False)
+
+# Huggingface Login at the beginning
+print("=" * 80)
+print("Welcome to ColabESM3!")
+print("Please login to HuggingFace to access ESM3 models")
+print("=" * 80)
+from huggingface_hub import notebook_login
+notebook_login()
 
 ################################################################################
 ################################################################################
@@ -323,10 +326,9 @@ try:
         fix_lora_parameters,
         load_esm3_with_lora
     )
-    print("ESM3 LoRA utilities imported successfully")
     LORA_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: LoRA utilities not available: {e}")
+    # LoRA utilities are optional, silently continue without them
     LORA_AVAILABLE = False
 
 DATASET_HOME = Path(f'{root_dir}/SaprotHub/datasets')
@@ -1381,18 +1383,8 @@ def get_num_labels_and_task_type_by_adapter(adapter_path):
 ################################################################################
 ############################ INFO ##############################################
 ################################################################################
-clear_output(wait=True)
-
-# Huggingface Login - Login before loading the main interface
-print("=" * 80)
-print("Welcome to ColabESM3!")
-print("Please login to HuggingFace to access ESM3 models")
-print("=" * 80)
-from huggingface_hub import notebook_login
-notebook_login()
-
-# Clear output after login, prepare to load the main interface
-clear_output(wait=True)
+# Prepare to load the main interface
+# (Installation outputs were cleared and login was completed at the beginning)
 
 import markdown
 import ipywidgets
@@ -1425,20 +1417,20 @@ def get_lora_model(
 ):
     """
     Get ESM3 model with LoRA adapter
-    
+
     Args:
         model_name: ESM3 model name
         lora_rank: LoRA rank
         lora_alpha: LoRA alpha scaling factor
         lora_dropout: LoRA dropout probability
         device: Device to load model on
-    
+
     Returns:
         lora_model: ESM3LoRAWrapper model
     """
     if not LORA_AVAILABLE:
         raise ImportError("LoRA utilities are not available. Please check esm3_lora_utils.py")
-    
+
     return load_esm3_with_lora(
         model_name=model_name,
         lora_rank=lora_rank,
@@ -1451,14 +1443,14 @@ def get_lora_model(
 def save_lora_adapter(lora_model, save_path):
     """
     Save LoRA adapter weights
-    
+
     Args:
         lora_model: ESM3LoRAWrapper model
         save_path: Path to save LoRA weights
     """
     if not isinstance(lora_model, ESM3LoRAWrapper):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
-    
+
     lora_model.save_lora_weights(save_path)
     print(f"LoRA adapter saved to: {save_path}")
 
@@ -1466,14 +1458,14 @@ def save_lora_adapter(lora_model, save_path):
 def load_lora_adapter(lora_model, adapter_path):
     """
     Load LoRA adapter weights
-    
+
     Args:
         lora_model: ESM3LoRAWrapper model
         adapter_path: Path to LoRA weights
     """
     if not isinstance(lora_model, ESM3LoRAWrapper):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
-    
+
     lora_model.load_lora_weights(adapter_path)
     print(f"LoRA adapter loaded from: {adapter_path}")
 
@@ -1481,14 +1473,14 @@ def load_lora_adapter(lora_model, adapter_path):
 def merge_lora_to_base(lora_model, output_path):
     """
     Merge LoRA weights into base model and save
-    
+
     Args:
         lora_model: ESM3LoRAWrapper model
         output_path: Path to save merged model
     """
     if not isinstance(lora_model, ESM3LoRAWrapper):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
-    
+
     lora_model.merge_and_save_model(output_path)
     print(f"Merged model saved to: {output_path}")
 
@@ -1496,10 +1488,10 @@ def merge_lora_to_base(lora_model, output_path):
 def is_lora_model(model):
     """
     Check if a model is a LoRA model
-    
+
     Args:
         model: Model to check
-    
+
     Returns:
         bool: True if model is ESM3LoRAWrapper
     """
@@ -1509,29 +1501,29 @@ def is_lora_model(model):
 def get_lora_trainable_params(lora_model):
     """
     Get trainable LoRA parameters
-    
+
     Args:
         lora_model: ESM3LoRAWrapper model
-    
+
     Returns:
         list: List of trainable parameters
     """
     if not isinstance(lora_model, ESM3LoRAWrapper):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
-    
+
     return lora_model.get_lora_parameters()
 
 
 def print_lora_info(lora_model):
     """
     Print LoRA model information
-    
+
     Args:
         lora_model: ESM3LoRAWrapper model
     """
     if not isinstance(lora_model, ESM3LoRAWrapper):
         raise ValueError("Model must be an ESM3LoRAWrapper instance")
-    
+
     print("=" * 60)
     print("ESM3 LoRA Model Information")
     print("=" * 60)
@@ -1827,6 +1819,68 @@ def save_uploaded_file(button):
   return name, str(save_path)
 
 
+# Helper function to load a single model
+def load_single_model(model_id, num_labels, model_type_source="Shared by peers on SaprotHub"):
+    """Load a single model from SaprotHub"""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    # Download model if needed
+    if model_type_source == "Shared by peers on SaprotHub":
+        snapshot_download(repo_id=model_id, repo_type="model", local_dir=ADAPTER_HOME / model_id)
+    
+    model_path = ADAPTER_HOME / model_id
+    weight_files = list(model_path.glob("*.pt"))
+    
+    if not weight_files:
+        raise RuntimeError(f"Model weight file not found in {model_path}")
+    
+    # Determine task type and config
+    task_type = load_task_type_from_model(model_type_source, model_id)
+    original_task_type = task_type
+    task_type = task_type_dict[task_type]
+    
+    # Determine config path (ESM3 or ESMC)
+    config_path = "esm3-open"
+    try:
+        checkpoint = torch.load(str(weight_files[0]), map_location='cpu')
+        if 'base_model' in checkpoint and 'esmc' in checkpoint['base_model'].lower():
+            config_path = "esmc_300m"
+        elif 'config_path' in checkpoint:
+            config_path = checkpoint['config_path']
+    except:
+        pass
+    
+    if 'esmc' in str(model_path).lower():
+        config_path = "esmc_300m"
+    
+    # Create model based on task type
+    if task_type == "classification":
+        from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
+        model = SaprotClassificationModel(num_labels=num_labels, config_path=config_path)
+    elif task_type == "regression":
+        from saprot.model.saprot.saprot_regression_model import SaprotRegressionModel
+        model = SaprotRegressionModel(config_path=config_path)
+    elif task_type == "token_classification":
+        from saprot.model.saprot.saprot_token_classification_model import SaprotTokenClassificationModel
+        model = SaprotTokenClassificationModel(num_labels=num_labels, config_path=config_path)
+    elif task_type == "pair_classification":
+        from saprot.model.saprot.saprot_pair_classification_model import SaprotPairClassificationModel
+        model = SaprotPairClassificationModel(num_labels=num_labels, config_path=config_path)
+    elif task_type == "pair_regression":
+        from saprot.model.saprot.saprot_pair_regression_model import SaprotPairRegressionModel
+        model = SaprotPairRegressionModel(config_path=config_path)
+    else:
+        raise ValueError(f"Unknown task type: {task_type}")
+    
+    # Load weights and prepare model
+    model.load_checkpoint(str(weight_files[0]))
+    model.to(device)
+    model = model.float()
+    model.eval()
+    
+    return model, task_type, original_task_type
+
+
 # Protein property prediction
 def make_predictions(df, rows, num_labels, model_type, model_arg):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -1840,8 +1894,101 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         temp_file.write("ESM3不支持分类预测,请使用训练好的模型\n")
         temp_file.close()
         return "ESM3不支持分类预测", temp_file.name
+    
+    # Handle multi-model ensemble
+    elif model_type == "Multi-models on SaprotHub":
+        model_arg_list = [arg.strip() for arg in str(model_arg).split("\n") if arg.strip()]
+        print(f"Loading {len(model_arg_list)} models for ensemble prediction...")
+        
+        # Load all models
+        models = []
+        task_type = None
+        original_task_type = None
+        
+        for i, model_id in enumerate(model_arg_list):
+            print(f"Loading model {i+1}/{len(model_arg_list)}: {model_id}")
+            model, t_type, orig_t_type = load_single_model(model_id, num_labels)
+            models.append(model)
+            
+            if task_type is None:
+                task_type = t_type
+                original_task_type = orig_t_type
+        
+        print(f"All {len(models)} models loaded successfully!")
+        print(f"Starting {original_task_type} ensemble prediction...")
+        
+        # Perform ensemble predictions
+        all_predictions = []  # List of predictions from each model
+        
+        if task_type in ["pair_classification", "pair_regression"]:
+            # Handle pair tasks
+            print(f"Processing pair prediction task...")
+            for pair_data in tqdm(rows, desc="Ensemble Predicting"):
+                model_preds = []
+                for model in models:
+                    with torch.no_grad():
+                        if isinstance(pair_data, (list, tuple)) and len(pair_data) == 2:
+                            seq1, seq2 = pair_data
+                            if isinstance(seq1, torch.Tensor):
+                                seq1 = seq1.float()
+                            if isinstance(seq2, torch.Tensor):
+                                seq2 = seq2.float()
+                            pred = model(seq1, seq2, device=device)
+                        else:
+                            pred = model(pair_data, device=device)
+                        model_preds.append(pred)
+                all_predictions.append(model_preds)
+        else:
+            for sa_seq in tqdm(rows, desc="Ensemble Predicting"):
+                model_preds = []
+                for model in models:
+                    with torch.no_grad():
+                        if isinstance(sa_seq, torch.Tensor):
+                            sa_seq = sa_seq.float()
+                        pred = model(sa_seq, device=device)
+                        model_preds.append(pred)
+                all_predictions.append(model_preds)
+        
+        # Ensemble: aggregate predictions
+        pred_labels = []
+        logits = []
+        
+        for sample_preds in all_predictions:
+            if "regression" in task_type:
+                # Average regression predictions
+                values = [p.squeeze().cpu().item() if isinstance(p, torch.Tensor) else float(p) for p in sample_preds]
+                ensemble_pred = np.mean(values)
+                pred_labels.append(ensemble_pred)
+            else:
+                # Classification: voting or averaging probabilities
+                probs_list = []
+                for p in sample_preds:
+                    if isinstance(p, torch.Tensor):
+                        probs = p.softmax(dim=-1).cpu().numpy()
+                        probs_list.append(probs)
+                
+                # Average probabilities across models
+                avg_probs = np.mean(probs_list, axis=0)
+                logits.append(avg_probs.tolist())
+                pred_labels.append(int(np.argmax(avg_probs)))
+        
+        # Save prediction results to file
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False)
+        temp_file.write("protein,prediction\n")
+        for i, label in enumerate(pred_labels):
+            protein_name = df.iloc[i]["protein"] if "protein" in df.columns else f"protein_{i+1}"
+            temp_file.write(f"{protein_name},{label}\n")
+        temp_file.close()
+        
+        # Return results
+        if len(pred_labels) == 1:
+            return pred_labels[0], temp_file.name
+        else:
+            return pred_labels, temp_file.name
+    
     else:
-        # 加载训练好的ESM3分类模型（仅支持新格式分类头权重）
+        # Single model prediction
         task_type = load_task_type_from_model(model_type, str(model_arg).split("\n")[0].strip())
         original_task_type = task_type
         task_type = task_type_dict[task_type]
@@ -1851,7 +1998,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         weight_files = list(model_path.glob("*.pt"))
         if weight_files:
             print(f"Loading model head weights: {weight_files[0].name}")
-            
+
             # 检查模型是否是ESMC
             # 从weight文件或metadata中判断模型类型
             config_path = "esm3-open"  # 默认使用ESM3
@@ -1866,13 +2013,13 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                     config_path = checkpoint['config_path']
             except:
                 pass
-            
+
             # 如果模型名称包含ESMC，也使用ESMC
             if 'esmc' in str(model_path).lower():
                 config_path = "esmc_300m"
-            
+
             print(f"Using base model: {config_path}")
-            
+
             # Select the appropriate model based on task type
             if task_type == "classification":
                 from saprot.model.saprot.saprot_classification_model import SaprotClassificationModel
@@ -1896,7 +2043,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                 print(f"Using SaprotPairRegressionModel")
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
-            
+
             model.load_checkpoint(str(weight_files[0]))
             model.to(device)
             model = model.float()  # Ensure model is float32
@@ -1924,7 +2071,7 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                     else:
                         # Fallback: try to pass the data as is
                         pred = model(pair_data, device=device)
-                
+
                 if task_type == "pair_regression":
                     # Handle regression output
                     if isinstance(pred, torch.Tensor):
@@ -2028,21 +2175,21 @@ def load_task_type_from_model(model_type, model_arg):
         print("metadata.json not found, assuming task type is protein-level classification")
         return "Protein-level Classification"
       else:
-        raise Exception("\033[31m无法确定模型任务类型，请检查模型文件!\033[0m")
+        raise Exception("\033[31mUnable to determine model task type, please check the model files!\033[0m")
 
   except Exception as e:
-    raise Exception(f"\033[31m加载模型信息失败: {str(e)}\033[0m")
+    raise Exception(f"\033[31mFailed to load model information: {str(e)}\033[0m")
 
 
 def generate_download_btn(path: str):
-  # 确保path是字符串类型
+  # Ensure path is a string type
   if path is None:
     print("Warning: No downloadable file")
-    return HTML("<p>没有可下载的文件</p>")
+    return HTML("<p>No downloadable file</p>")
 
   if not isinstance(path, str):
     print(f"Warning: Path parameter type error, expected string, got {type(path)}")
-    return HTML("<p>路径参数错误</p>")
+    return HTML("<p>Path parameter error</p>")
 
   if root_dir == "/content":
     btn = ipywidgets.Button(
@@ -2080,7 +2227,7 @@ def generate_download_btn(path: str):
       return HTML(html_button)
     except Exception as e:
       print(f"Warning: Cannot read file {path}: {e}")
-      return HTML(f"<p>无法读取文件: {e}</p>")
+      return HTML(f"<p>Cannot read file: {e}</p>")
 
 
 def load_embedding_generation_model(model_type, model_arg):
@@ -2359,7 +2506,7 @@ def choose_training_task():
 
   model_hint = HTML(markdown.markdown("### Model setting:"))
   model_type = ipywidgets.Dropdown(
-            options=['Official ESM3 (1.4B)', 'Official ESMC (Seq-only)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=['Official ESM3 (1.4B)', "Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
             value='Official ESM3 (1.4B)',
             description='Base model:',
             disabled=False,
@@ -2858,7 +3005,7 @@ def choose_training_task():
     config.model.kwargs.config_path = base_model
     config.model.kwargs.load_pretrained = True  # 确保加载预训练权重
     # config.dataset.kwargs.tokenizer = base_model  # ESM3不需要tokenizer
-    
+
     # 传递base_model_type以便模型判断是ESM3还是ESMC
     if base_model == "esmc_300m":
         config.model.kwargs.base_model_type = "esmc"
@@ -3048,17 +3195,17 @@ def choose_training_task():
             df = pd.read_csv(csv_dataset_path)
         else:
             raise e
-    
+
     # 数据格式验证：检查列是否与任务类型匹配
     if "Protein-protein" in task_type.value:
       # Protein-protein任务需要的列（chain_1和chain_2是必需的）
       required_cols_pair = ["chain_1", "chain_2"]
       missing_cols = [col for col in required_cols_pair if col not in df.columns]
-      
+
       # 检查是否有protein_1/protein_2或其他数据列
       has_protein_pair = "protein_1" in df.columns and "protein_2" in df.columns
       has_sequence_pair = "sequence_1" in df.columns and "sequence_2" in df.columns
-      
+
       if missing_cols:
         red_print(f"Error: You selected '{task_type.value}' task, but data is missing required columns: {', '.join(missing_cols)}")
         red_print(f"\nProtein-protein tasks require the following columns:")
@@ -3069,7 +3216,7 @@ def choose_training_task():
         red_print(f"\nTip: If your data is single protein data (only protein/sequence columns),")
         red_print(f"   please select 'Protein-level Classification' or 'Protein-level Regression' task!")
         return
-      
+
       if not has_protein_pair and not has_sequence_pair:
         red_print(f"Error: You selected '{task_type.value}' task, but data is missing protein pair columns!")
         red_print(f"\nOne of the following column sets is required:")
@@ -3082,7 +3229,7 @@ def choose_training_task():
       # 单蛋白质任务需要的列
       has_protein = "protein" in df.columns
       has_sequence = "sequence" in df.columns
-      
+
       if not has_protein and not has_sequence:
         red_print(f"Error: You selected '{task_type.value}' task, but data is missing protein data columns!")
         red_print(f"\nSingle protein tasks require the following columns:")
@@ -3092,14 +3239,14 @@ def choose_training_task():
         red_print(f"\nTip: If your data is protein pair data (with protein_1/protein_2 columns),")
         red_print(f"   please select 'Protein-protein Classification' or 'Protein-protein Regression' task!")
         return
-      
+
       # 检查是否误用了pair数据格式
       if "protein_1" in df.columns or "protein_2" in df.columns or "sequence_1" in df.columns or "sequence_2" in df.columns:
         red_print(f"Error: Your data appears to be protein pair format (contains protein_1/protein_2 or sequence_1/sequence_2 columns),")
         red_print(f"   but you selected single protein task '{task_type.value}'!")
         red_print(f"\nTip: Please select 'Protein-protein Classification' or 'Protein-protein Regression' task!")
         return
-    
+
     # ESM3结构数据不需要重命名protein列（保留PDB文件名）
     # 只有非ESM3或序列数据才需要重命名为sequence
     if data_type.value == "protein structure" and model_type_value in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
@@ -3711,7 +3858,7 @@ def protein_property_prediction():
 
   model_hint = HTML(markdown.markdown("### Choose the model for prediction:"))
   model_type_box = ipywidgets.Dropdown(
-            options=["Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Saved in your local computer"],
+            options=["Trained by yourself on ColabESM3", "Shared by peers on SaprotHub", "Multi-models on SaprotHub", "Saved in your local computer"],
             value="Trained by yourself on ColabESM3",
             description='Base model:',
             disabled=False,
@@ -4087,7 +4234,7 @@ def protein_property_prediction():
       assert name.endswith(".pdb") or name.endswith(".cif"), "Please upload file with correct format (.pdb / .cif)!"
 
       chain = input_chain_1.value
-      
+
       # ESM3模型不需要转换为SA序列，直接保存PDB路径
       if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
         df = pd.DataFrame(columns=["protein", "chain", "pdb_path"])
@@ -4123,7 +4270,7 @@ def protein_property_prediction():
           struc_dir = file_path
 
       df = pd.read_csv(csv_path)
-      
+
       # ESM3模型不需要转换为SA序列，直接保存PDB路径
       if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
         df["pdb_path"] = df["protein"].apply(lambda x: f"{struc_dir}/{x}")
@@ -4166,7 +4313,7 @@ def protein_property_prediction():
 
       chain_1 = input_chain_1.value
       chain_2 = input_chain_2.value
-      
+
       # ESM3模型不需要转换为SA序列，直接保存PDB路径
       if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
         df = pd.DataFrame(columns=["protein_1", "protein_2", "chain_1", "chain_2", "pdb_path_1", "pdb_path_2"])
@@ -4207,7 +4354,7 @@ def protein_property_prediction():
           struc_dir = file_path
 
       df = pd.read_csv(csv_path)
-      
+
       # ESM3模型不需要转换为SA序列，直接保存PDB路径
       if model_type in ["Official ESM3 (1.4B)", "Trained by yourself on ColabESM3"]:
         df["pdb_path_1"] = df["protein_1"].apply(lambda x: f"{struc_dir}/{x}")
@@ -5408,14 +5555,14 @@ with ui_events() as poll:
 def read_pdb_simple(pdb_file, chain_id="A"):
     """使用ESM3的ProteinChain方式读取PDB文件"""
     from esm.utils.structure.protein_chain import ProteinChain
-    
+
     # 使用ESM3的ProteinChain读取PDB
     chain = ProteinChain.from_pdb(pdb_file, chain_id=chain_id)
-    
+
     # 返回序列和atom37坐标
     sequence = chain.sequence
     coordinates = chain.atom37_positions
-    
+
     return sequence, coordinates
 
 def encode_sequence_only(model, sequence, device):
