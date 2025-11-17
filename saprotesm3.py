@@ -2087,15 +2087,11 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                     # pair_data should be a tuple of (seq1, seq2)
                     if isinstance(pair_data, (list, tuple)) and len(pair_data) == 2:
                         seq1, seq2 = pair_data
-                        # Ensure inputs are float32 if they're tensors
-                        if isinstance(seq1, torch.Tensor):
-                            seq1 = seq1.float()
-                        if isinstance(seq2, torch.Tensor):
-                            seq2 = seq2.float()
-                        pred = model(seq1, seq2, device=device)
+                        # Pass sequences as named parameters
+                        pred = model(sequences_1=[seq1], sequences_2=[seq2])
                     else:
-                        # Fallback: try to pass the data as is
-                        pred = model(pair_data, device=device)
+                        # Fallback: assume it's a single sequence for both
+                        pred = model(sequences_1=[pair_data], sequences_2=[pair_data])
 
                 if task_type == "pair_regression":
                     # Handle regression output
@@ -2116,10 +2112,9 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
         else:
             for sa_seq in tqdm(rows, desc="Predicting"):
                 with torch.no_grad():
-                    # Ensure input is float32 if it's a tensor
-                    if isinstance(sa_seq, torch.Tensor):
-                        sa_seq = sa_seq.float()
-                    pred = model(sa_seq, device=device)
+                    # Pass sequences as named parameter for all task types
+                    pred = model(sequences=[sa_seq])
+                
                 if "regression" in task_type:
                     # Handle regression output: pred may have shape [1,1] or [batch_size,1]
                     if isinstance(pred, torch.Tensor):
@@ -2127,7 +2122,20 @@ def make_predictions(df, rows, num_labels, model_type, model_arg):
                     else:
                         pred_value = float(pred)
                     pred_labels.append(pred_value)
+                elif task_type == "token_classification":
+                    # Handle token classification: pred has shape [batch_size, seq_len, num_labels]
+                    if isinstance(pred, torch.Tensor):
+                        # Get predictions for the first sample in batch
+                        # pred[0] has shape [seq_len, num_labels]
+                        softmax_probs = pred[0].softmax(dim=-1).cpu().numpy()
+                        logits.append(softmax_probs.tolist())
+                        # Get predicted label for each position
+                        pred_labels.append(pred.argmax(dim=-1)[0].cpu().numpy().tolist())
+                    else:
+                        logits.append([[1.0]])
+                        pred_labels.append([0])
                 else:
+                    # Handle other classification tasks (protein-level)
                     if isinstance(pred, torch.Tensor):
                         # Process classification predictions
                         softmax_probs = pred.softmax(dim=-1).cpu().numpy()
