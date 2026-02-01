@@ -206,6 +206,31 @@ class PurePyTorchTrainer:
             # 反向传播
             loss.backward()
             
+            # #region agent log
+            # Debug logging for gradient analysis after backward
+            if batch_idx < 5:  # Only log first 5 batches to avoid too many logs
+                try:
+                    print(f"\n[DEBUG after_backward] batch_idx={batch_idx}, loss={loss.item():.6f}")
+                    # Check regression head gradients
+                    if hasattr(model, 'regression_head'):
+                        if model.regression_head.weight.grad is not None:
+                            print(f"  regression_head_weight_grad: norm={model.regression_head.weight.grad.norm().item():.6f}, mean={model.regression_head.weight.grad.mean().item():.6f}, max={model.regression_head.weight.grad.max().item():.6f}")
+                        else:
+                            print(f"  regression_head_weight_grad: None - NO GRADIENT!")
+                        
+                        if model.regression_head.bias is not None and model.regression_head.bias.grad is not None:
+                            print(f"  regression_head_bias_grad={model.regression_head.bias.grad.item():.6f}")
+                        else:
+                            print(f"  regression_head_bias_grad: None")
+                    
+                    # Count total params with gradients
+                    params_with_grad = sum(1 for p in model.parameters() if p.grad is not None)
+                    total_params = sum(1 for p in model.parameters())
+                    print(f"  params_with_grad={params_with_grad}/{total_params}")
+                except Exception as e:
+                    pass
+            # #endregion
+            
             accumulation_counter += 1
             
             # 梯度累积

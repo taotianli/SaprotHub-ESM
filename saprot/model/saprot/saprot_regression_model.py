@@ -89,6 +89,20 @@ class SimpleRegressionMetrics:
             preds_np = np.array(preds.cpu().numpy(), dtype=np.float64)
             targets_np = np.array(targets.cpu().numpy(), dtype=np.float64)
             
+            # #region agent log
+            # Debug logging for spearman calculation
+            try:
+                print(f"\n[DEBUG compute_spearman]")
+                print(f"  num_samples={len(preds_np)}")
+                print(f"  preds_unique_count={len(np.unique(preds_np))}, targets_unique_count={len(np.unique(targets_np))}")
+                print(f"  preds: min={np.min(preds_np):.6f}, max={np.max(preds_np):.6f}, std={np.std(preds_np):.6f}")
+                print(f"  targets: min={np.min(targets_np):.6f}, max={np.max(targets_np):.6f}, std={np.std(targets_np):.6f}")
+                print(f"  preds_first_10={preds_np[:10].tolist() if len(preds_np) >= 10 else preds_np.tolist()}")
+                print(f"  targets_first_10={targets_np[:10].tolist() if len(targets_np) >= 10 else targets_np.tolist()}")
+            except Exception as e:
+                pass
+            # #endregion
+            
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', category=RuntimeWarning)
                 corr, _ = spearmanr(preds_np, targets_np)
@@ -290,6 +304,25 @@ class SaprotRegressionModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
+        # #region agent log
+        # Debug logging for input analysis
+        try:
+            print(f"\n[DEBUG forward_input]")
+            if "tokens" in inputs:
+                t = inputs["tokens"]
+                print(f"  tokens_shape={list(t.shape)}, dtype={t.dtype}, device={t.device}")
+                print(f"  tokens: min={t.float().min().item():.4f}, max={t.float().max().item():.4f}, mean={t.float().mean().item():.4f}")
+                print(f"  tokens_nonzero_ratio={(t != 0).sum().item() / t.numel():.4f}")
+            elif "embeddings" in inputs:
+                print(f"  has_embeddings=True, shape={list(inputs['embeddings'].shape)}")
+            elif "sequences" in inputs:
+                print(f"  has_sequences=True, num_sequences={len(inputs['sequences'])}")
+            else:
+                print(f"  input_keys={list(inputs.keys())}")
+        except Exception as e:
+            pass
+        # #endregion
+        
         # 优先处理tokens
         if "tokens" in inputs:
             # print(f"[回归模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
@@ -466,6 +499,20 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 确保回归头在正确的设备和数据类型上
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
+        # #region agent log
+        # Debug logging for feature and regression head analysis
+        try:
+            print(f"\n[DEBUG forward_features]")
+            print(f"  stacked_features: shape={list(stacked_features.shape)}, dtype={stacked_features.dtype}, device={stacked_features.device}")
+            print(f"  stacked_features: min={stacked_features.min().item():.4f}, max={stacked_features.max().item():.4f}, mean={stacked_features.mean().item():.4f}, std={stacked_features.std().item():.4f}")
+            print(f"  stacked_features_nonzero_ratio={(stacked_features != 0).sum().item() / stacked_features.numel():.4f}")
+            print(f"  regression_head_weight: min={self.regression_head.weight.min().item():.6f}, max={self.regression_head.weight.max().item():.6f}, mean={self.regression_head.weight.mean().item():.6f}")
+            if self.regression_head.bias is not None:
+                print(f"  regression_head_bias={self.regression_head.bias.item():.6f}")
+        except Exception as e:
+            pass
+        # #endregion
+        
         # Forward pass - 不使用squeeze，保持与classification一致
         logits = self.regression_head(stacked_features)
         # print(f"[回归模型调试] 回归输出形状: {logits.shape}")
@@ -478,6 +525,19 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 确保形状匹配：flatten输出和标签
         outputs_flat = outputs.flatten()
         fitness_flat = fitness.flatten()
+        
+        # #region agent log
+        # Debug logging for hypothesis verification
+        try:
+            print(f"\n[DEBUG loss_func] stage={stage}")
+            print(f"  outputs_shape={list(outputs.shape)}, outputs_flat_shape={list(outputs_flat.shape)}")
+            print(f"  outputs: min={outputs_flat.min().item():.6f}, max={outputs_flat.max().item():.6f}, mean={outputs_flat.mean().item():.6f}, std={outputs_flat.std().item() if len(outputs_flat) > 1 else 0.0:.6f}")
+            print(f"  fitness: min={fitness_flat.min().item():.6f}, max={fitness_flat.max().item():.6f}, mean={fitness_flat.mean().item():.6f}, std={fitness_flat.std().item() if len(fitness_flat) > 1 else 0.0:.6f}")
+            print(f"  outputs_first_5={[float(x) for x in outputs_flat[:5].tolist()]}")
+            print(f"  fitness_first_5={[float(x) for x in fitness_flat[:5].tolist()]}")
+        except Exception as e:
+            pass
+        # #endregion
         
         loss = torch.nn.functional.mse_loss(outputs_flat, fitness_flat)
         
@@ -533,6 +593,20 @@ class SaprotRegressionModel(SaprotBaseModel):
                     all_params.append((full_name, param))
                     regression_head_param_count += 1
                     # print(f"  添加到优化器: {full_name}")
+        
+        # #region agent log
+        # Debug logging for optimizer initialization
+        try:
+            print(f"\n[DEBUG init_optimizers]")
+            print(f"  esm3_param_count={esm3_param_count}")
+            print(f"  regression_head_param_count={regression_head_param_count}")
+            print(f"  total_param_count={len(all_params)}")
+            print(f"  weight_decay={weight_decay}")
+            print(f"  init_lr={self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
+            print(f"  lr_scheduler_class={self.lr_scheduler_kwargs.get('class', 'N/A')}")
+        except Exception as e:
+            pass
+        # #endregion
 
         # print(f"回归头可训练参数数量: {regression_head_param_count}")
         # print(f"总可训练参数数量: {len(all_params)}")
