@@ -35,6 +35,11 @@ class SimpleRegressionMetrics:
         targets = torch.cat(self.targets)
         return torch.mean((preds - targets) ** 2).item()
     
+    def compute_rmse(self):
+        """计算均方根误差 (RMSE = sqrt(MSE))"""
+        mse = self.compute_mse()
+        return mse ** 0.5
+    
     def compute_pearson(self):
         """计算皮尔逊相关系数"""
         if len(self.preds) == 0:
@@ -189,7 +194,8 @@ class SaprotRegressionModel(SaprotBaseModel):
         log_dict = {}
         metrics_obj = self.metrics[stage].get(f"{stage}_metrics")
         if metrics_obj:
-            log_dict[f"{stage}_loss"] = metrics_obj.compute_mse()
+            # 使用RMSE而不是MSE，因为图表标签显示的是RMSE
+            log_dict[f"{stage}_loss"] = metrics_obj.compute_rmse()
             log_dict[f"{stage}_spearman"] = metrics_obj.compute_spearman()
             log_dict[f"{stage}_R2"] = metrics_obj.compute_r2()
             log_dict[f"{stage}_pearson"] = metrics_obj.compute_pearson()
