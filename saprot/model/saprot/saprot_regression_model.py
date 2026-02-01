@@ -63,6 +63,15 @@ class SimpleRegressionMetrics:
         
         return result
     
+    def _get_ranks(self, x):
+        """计算排名（用于Spearman相关系数）"""
+        # 获取排序索引
+        sorted_indices = torch.argsort(x)
+        # 创建排名数组
+        ranks = torch.zeros_like(x, dtype=torch.float)
+        ranks[sorted_indices] = torch.arange(1, len(x) + 1, dtype=torch.float, device=x.device)
+        return ranks
+    
     def compute_spearman(self):
         """计算斯皮尔曼相关系数（使用排名）"""
         if len(self.preds) == 0:
@@ -75,21 +84,51 @@ class SimpleRegressionMetrics:
             # 对于小样本，返回Pearson相关系数作为替代
             return self.compute_pearson()
         
-        # 使用numpy计算更准确的spearman
+        # 优先尝试使用scipy计算（更准确，能处理相同排名）
         try:
             from scipy.stats import spearmanr
             import warnings
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', category=RuntimeWarning)
                 corr, _ = spearmanr(preds.numpy(), targets.numpy())
-            # 确保返回Python float而不是numpy.float64
-            # 检查是否为nan，如果是则返回0.0
+            # 检查是否为nan
             if float(corr) != float(corr):  # NaN check (NaN != NaN)
                 return 0.0
             return float(corr)
-        except:
-            # 如果scipy不可用，返回pearson作为近似
-            return self.compute_pearson()
+        except ImportError:
+            # scipy不可用时，使用纯PyTorch实现
+            pass
+        except Exception as e:
+            # 其他异常时，也使用纯PyTorch实现
+            print(f"scipy spearmanr failed: {e}, using PyTorch implementation")
+        
+        # 纯PyTorch实现的Spearman相关系数
+        # Spearman = Pearson correlation of ranks
+        try:
+            rank_preds = self._get_ranks(preds)
+            rank_targets = self._get_ranks(targets)
+            
+            # 计算排名的Pearson相关系数
+            vx = rank_preds - torch.mean(rank_preds)
+            vy = rank_targets - torch.mean(rank_targets)
+            
+            std_x = torch.sqrt(torch.sum(vx ** 2))
+            std_y = torch.sqrt(torch.sum(vy ** 2))
+            
+            if std_x == 0 or std_y == 0:
+                return 0.0
+            
+            corr = torch.sum(vx * vy) / (std_x * std_y)
+            result = corr.item()
+            
+            # NaN检查
+            if result != result:
+                return 0.0
+            
+            return result
+        except Exception as e:
+            print(f"PyTorch Spearman calculation failed: {e}")
+            return 0.0
     
     def compute_r2(self):
         """计算R²分数"""
