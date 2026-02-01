@@ -348,17 +348,17 @@ class SaprotRegressionModel(SaprotBaseModel):
                     actual_tokens = sample_tokens[:actual_len]
                     
                     try:
-                        # 创建ESMProteinTensor并通过模型获取嵌入
-                        # ESM3的forward可以接受ESMProteinTensor
-                        protein_tensor = ESMProteinTensor(
-                            sequence=actual_tokens.unsqueeze(0).to(device)  # [1, seq_len]
-                        )
+                        # 确保tokens是long类型（ESM3期望的输入类型）
+                        sequence_tokens_input = actual_tokens.unsqueeze(0).long().to(device)
                         
                         # 使用ESM3模型的forward获取嵌入
+                        # 注意：需要确保模型在正确的数据类型下运行
                         with torch.set_grad_enabled(self.training):
-                            output = self.model.forward(
-                                sequence_tokens=protein_tensor.sequence,
-                            )
+                            # 使用autocast确保数据类型一致性
+                            with torch.cuda.amp.autocast(enabled=True, dtype=model_dtype):
+                                output = self.model.forward(
+                                    sequence_tokens=sequence_tokens_input,
+                                )
                             
                             # 调试：打印output的属性
                             if i == 0 and batch_size > 0:
@@ -368,7 +368,10 @@ class SaprotRegressionModel(SaprotBaseModel):
                                     if hasattr(output, attr):
                                         val = getattr(output, attr)
                                         if val is not None:
-                                            print(f"  {attr}: shape={val.shape if hasattr(val, 'shape') else type(val)}")
+                                            if hasattr(val, 'shape'):
+                                                print(f"  {attr}: shape={val.shape}, dtype={val.dtype}")
+                                            else:
+                                                print(f"  {attr}: type={type(val)}")
                                         else:
                                             print(f"  {attr}: None")
                             
@@ -386,20 +389,23 @@ class SaprotRegressionModel(SaprotBaseModel):
                             else:
                                 # 回退：使用token值本身（但这不理想）
                                 print(f"[WARNING] ESM3 output has no embeddings, falling back to token values")
-                                seq_feature = actual_tokens.float()
+                                seq_feature = actual_tokens.float().to(dtype=model_dtype)
                         
                         # 截断或padding到固定长度
+                        seq_feature = seq_feature.to(dtype=model_dtype)
                         if len(seq_feature) > self.fixed_seq_length:
                             seq_feature = seq_feature[:self.fixed_seq_length]
                         elif len(seq_feature) < self.fixed_seq_length:
                             padding_size = self.fixed_seq_length - len(seq_feature)
-                            padding = torch.zeros(padding_size, device=device, dtype=seq_feature.dtype)
+                            padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
                             seq_feature = torch.cat([seq_feature, padding])
                         
-                        features.append(seq_feature.to(dtype=model_dtype))
+                        features.append(seq_feature)
                         
                     except Exception as e:
                         print(f"[WARNING] ESM3 embedding extraction failed for sample {i}: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
                         # 回退：创建零向量
                         features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
                 
@@ -407,6 +413,8 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
             except Exception as e:
                 print(f"[WARNING] Token processing failed: {str(e)}, falling back to zero features")
+                import traceback
+                traceback.print_exc()
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
