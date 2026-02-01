@@ -323,32 +323,90 @@ class SaprotRegressionModel(SaprotBaseModel):
             pass
         # #endregion
         
-        # 优先处理tokens
+        # 优先处理tokens - 需要通过ESM3获取语义嵌入
         if "tokens" in inputs:
-            # print(f"[回归模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
             tokens = inputs["tokens"].to(device=device)
+            batch_size = tokens.shape[0]
             
-            # 将tokens转换为浮点数类型并进行截断/padding
+            # 关键修复：使用ESM3模型获取语义嵌入，而不是直接使用token IDs
             try:
-                tokens_float = tokens.float().to(dtype=model_dtype)
+                from esm.sdk.api import ESMProteinTensor
                 
-                if tokens_float.dim() == 2:
-                    batch_size, seq_len = tokens_float.shape
-                    # print(f"[回归模型调试] 原始序列长度: {seq_len}, 目标长度: {self.fixed_seq_length}")
+                features = []
+                model_type = getattr(self, 'model_type', 'esm3')
+                
+                for i in range(batch_size):
+                    sample_tokens = tokens[i]  # [seq_len]
                     
-                    # 截断或padding到固定长度
-                    stacked_features = self._pad_or_truncate_features(tokens_float, self.fixed_seq_length)
-                    # print(f"[回归模型调试] 处理后特征形状: {stacked_features.shape}")
+                    # 找到非padding的实际序列长度
+                    non_zero_mask = sample_tokens != 0
+                    actual_len = non_zero_mask.sum().item()
+                    if actual_len == 0:
+                        actual_len = 1  # 至少保留一个token
                     
-                else:
-                    # print(f"[回归模型调试] tokens维度不符合预期: {tokens_float.shape}")
-                    # 创建固定长度的零特征
-                    batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
-                    stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
+                    # 截取实际的tokens（去除padding）
+                    actual_tokens = sample_tokens[:actual_len]
+                    
+                    try:
+                        # 创建ESMProteinTensor并通过模型获取嵌入
+                        # ESM3的forward可以接受ESMProteinTensor
+                        protein_tensor = ESMProteinTensor(
+                            sequence=actual_tokens.unsqueeze(0).to(device)  # [1, seq_len]
+                        )
+                        
+                        # 使用ESM3模型的forward获取嵌入
+                        with torch.set_grad_enabled(self.training):
+                            output = self.model.forward(
+                                sequence_tokens=protein_tensor.sequence,
+                            )
+                            
+                            # 调试：打印output的属性
+                            if i == 0 and batch_size > 0:
+                                output_attrs = [attr for attr in dir(output) if not attr.startswith('_')]
+                                print(f"\n[DEBUG ESM3 output] attributes: {output_attrs}")
+                                for attr in ['embeddings', 'sequence_logits', 'logits', 'hidden_states']:
+                                    if hasattr(output, attr):
+                                        val = getattr(output, attr)
+                                        if val is not None:
+                                            print(f"  {attr}: shape={val.shape if hasattr(val, 'shape') else type(val)}")
+                                        else:
+                                            print(f"  {attr}: None")
+                            
+                            # 从输出中提取嵌入
+                            if hasattr(output, 'embeddings') and output.embeddings is not None:
+                                # embeddings: [1, seq_len, hidden_dim]
+                                seq_embedding = output.embeddings.squeeze(0)  # [seq_len, hidden_dim]
+                                # 对hidden_dim维度做mean pooling得到 [seq_len]
+                                seq_feature = seq_embedding.mean(dim=-1)
+                            elif hasattr(output, 'sequence_logits') and output.sequence_logits is not None:
+                                # 如果没有embeddings，使用sequence_logits
+                                # sequence_logits: [1, seq_len, vocab_size]
+                                seq_logits = output.sequence_logits.squeeze(0)  # [seq_len, vocab_size]
+                                seq_feature = seq_logits.mean(dim=-1)
+                            else:
+                                # 回退：使用token值本身（但这不理想）
+                                print(f"[WARNING] ESM3 output has no embeddings, falling back to token values")
+                                seq_feature = actual_tokens.float()
+                        
+                        # 截断或padding到固定长度
+                        if len(seq_feature) > self.fixed_seq_length:
+                            seq_feature = seq_feature[:self.fixed_seq_length]
+                        elif len(seq_feature) < self.fixed_seq_length:
+                            padding_size = self.fixed_seq_length - len(seq_feature)
+                            padding = torch.zeros(padding_size, device=device, dtype=seq_feature.dtype)
+                            seq_feature = torch.cat([seq_feature, padding])
+                        
+                        features.append(seq_feature.to(dtype=model_dtype))
+                        
+                    except Exception as e:
+                        print(f"[WARNING] ESM3 embedding extraction failed for sample {i}: {str(e)}")
+                        # 回退：创建零向量
+                        features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
+                
+                stacked_features = torch.stack(features)  # [batch_size, fixed_seq_length]
                 
             except Exception as e:
-                # print(f"[回归模型调试] tokens处理失败: {str(e)}")
-                batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
+                print(f"[WARNING] Token processing failed: {str(e)}, falling back to zero features")
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
