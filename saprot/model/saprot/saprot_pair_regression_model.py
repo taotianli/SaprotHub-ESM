@@ -35,6 +35,11 @@ class SimpleRegressionMetrics:
         targets = torch.cat(self.targets)
         return torch.mean((preds - targets) ** 2).item()
     
+    def compute_rmse(self):
+        """计算均方根误差 (RMSE = sqrt(MSE))"""
+        mse = self.compute_mse()
+        return mse ** 0.5
+    
     def compute_pearson(self):
         """计算皮尔逊相关系数"""
         if len(self.preds) == 0:
@@ -63,6 +68,13 @@ class SimpleRegressionMetrics:
         
         return result
     
+    def _get_ranks(self, x):
+        """计算排名（用于Spearman相关系数）"""
+        sorted_indices = torch.argsort(x)
+        ranks = torch.zeros_like(x, dtype=torch.float)
+        ranks[sorted_indices] = torch.arange(1, len(x) + 1, dtype=torch.float, device=x.device)
+        return ranks
+    
     def compute_spearman(self):
         """计算斯皮尔曼相关系数（使用排名）"""
         if len(self.preds) == 0:
@@ -72,21 +84,47 @@ class SimpleRegressionMetrics:
         
         # Spearman需要至少3个样本才能有效计算
         if len(preds) < 3:
-            # 对于小样本，返回Pearson相关系数作为替代
             return self.compute_pearson()
         
-        # 使用scipy计算更准确的spearman
+        # 优先尝试使用scipy计算（更准确，能处理相同排名）
         try:
             from scipy.stats import spearmanr
-            corr, _ = spearmanr(preds.numpy(), targets.numpy())
-            # 确保返回Python float而不是numpy.float64
-            # 检查是否为nan，如果是则返回0.0
-            if float(corr) != float(corr):  # NaN check (NaN != NaN)
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=RuntimeWarning)
+                corr, _ = spearmanr(preds.numpy(), targets.numpy())
+            if float(corr) != float(corr):  # NaN check
                 return 0.0
             return float(corr)
-        except:
-            # 如果scipy不可用，返回pearson作为近似
-            return self.compute_pearson()
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"scipy spearmanr failed: {e}, using PyTorch implementation")
+        
+        # 纯PyTorch实现的Spearman相关系数
+        try:
+            rank_preds = self._get_ranks(preds)
+            rank_targets = self._get_ranks(targets)
+            
+            vx = rank_preds - torch.mean(rank_preds)
+            vy = rank_targets - torch.mean(rank_targets)
+            
+            std_x = torch.sqrt(torch.sum(vx ** 2))
+            std_y = torch.sqrt(torch.sum(vy ** 2))
+            
+            if std_x == 0 or std_y == 0:
+                return 0.0
+            
+            corr = torch.sum(vx * vy) / (std_x * std_y)
+            result = corr.item()
+            
+            if result != result:  # NaN check
+                return 0.0
+            
+            return result
+        except Exception as e:
+            print(f"PyTorch Spearman calculation failed: {e}")
+            return 0.0
     
     def compute_r2(self):
         """计算R²分数"""
@@ -211,7 +249,8 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         log_dict = {}
         metrics_obj = self.metrics[stage].get(f"{stage}_metrics")
         if metrics_obj:
-            log_dict[f"{stage}_loss"] = metrics_obj.compute_mse()
+            # 使用RMSE而不是MSE，因为图表标签显示的是RMSE
+            log_dict[f"{stage}_loss"] = metrics_obj.compute_rmse()
             log_dict[f"{stage}_spearman"] = metrics_obj.compute_spearman()
             log_dict[f"{stage}_R2"] = metrics_obj.compute_r2()
             log_dict[f"{stage}_pearson"] = metrics_obj.compute_pearson()
