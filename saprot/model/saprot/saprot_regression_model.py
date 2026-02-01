@@ -143,11 +143,14 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotRegressionModel(SaprotBaseModel):
+    # ESM3的hidden_dim是1536
+    ESM3_HIDDEN_DIM = 1536
+    
     def __init__(self, test_result_path: str = None, fixed_seq_length: int = 2048, base_model_type: str = None, **kwargs):
         """
         Args:
             test_result_path: path to save test result
-            fixed_seq_length: 固定序列长度，用于截断或padding
+            fixed_seq_length: 固定序列长度，用于截断或padding（现在主要用于兼容性）
             base_model_type: 'esm3' or 'esmc', explicitly specify model type
             **kwargs: other arguments for SaprotBaseModel
         """
@@ -156,11 +159,11 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="regression", **kwargs)
         
-        # 创建固定维度的回归头
-        self.regression_head = torch.nn.Linear(self.fixed_seq_length, 1)
+        # 创建回归头：输入维度是ESM3的hidden_dim (1536)
+        # 使用mean pooling后的全局特征作为输入
+        self.regression_head = torch.nn.Linear(self.ESM3_HIDDEN_DIM, 1)
         
-        # print(f"创建固定回归头: {self.fixed_seq_length} -> 1")
-        # print(f"回归头参数: weight={self.regression_head.weight.shape}, bias={self.regression_head.bias.shape}")
+        print(f"[INFO] 创建回归头: {self.ESM3_HIDDEN_DIM} -> 1 (使用ESM3 hidden_dim)")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
@@ -377,147 +380,87 @@ class SaprotRegressionModel(SaprotBaseModel):
                             
                             # 从输出中提取嵌入
                             if hasattr(output, 'embeddings') and output.embeddings is not None:
-                                # embeddings: [1, seq_len, hidden_dim]
+                                # embeddings: [1, seq_len, hidden_dim] 例如 [1, 190, 1536]
                                 seq_embedding = output.embeddings.squeeze(0)  # [seq_len, hidden_dim]
-                                # 对hidden_dim维度做mean pooling得到 [seq_len]
-                                seq_feature = seq_embedding.mean(dim=-1)
+                                
+                                # 策略：对序列维度做mean pooling，保留hidden_dim作为特征
+                                # 这样每个蛋白质得到一个 [hidden_dim] 的向量，携带全局语义信息
+                                seq_feature = seq_embedding.mean(dim=0)  # [hidden_dim] = [1536]
+                                
+                                if i == 0:
+                                    print(f"[DEBUG] Using mean pooling over sequence: {seq_embedding.shape} -> {seq_feature.shape}")
+                                
                             elif hasattr(output, 'sequence_logits') and output.sequence_logits is not None:
                                 # 如果没有embeddings，使用sequence_logits
                                 # sequence_logits: [1, seq_len, vocab_size]
                                 seq_logits = output.sequence_logits.squeeze(0)  # [seq_len, vocab_size]
-                                seq_feature = seq_logits.mean(dim=-1)
+                                seq_feature = seq_logits.mean(dim=0)  # [vocab_size]
                             else:
                                 # 回退：使用token值本身（但这不理想）
                                 print(f"[WARNING] ESM3 output has no embeddings, falling back to token values")
                                 seq_feature = actual_tokens.float().to(dtype=model_dtype)
                         
-                        # 截断或padding到固定长度
+                        # 特征已经是固定维度（hidden_dim=1536），不需要padding
                         seq_feature = seq_feature.to(dtype=model_dtype)
-                        if len(seq_feature) > self.fixed_seq_length:
-                            seq_feature = seq_feature[:self.fixed_seq_length]
-                        elif len(seq_feature) < self.fixed_seq_length:
-                            padding_size = self.fixed_seq_length - len(seq_feature)
-                            padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
-                            seq_feature = torch.cat([seq_feature, padding])
-                        
                         features.append(seq_feature)
                         
                     except Exception as e:
                         print(f"[WARNING] ESM3 embedding extraction failed for sample {i}: {str(e)}")
                         import traceback
                         traceback.print_exc()
-                        # 回退：创建零向量
-                        features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
+                        # 回退：创建零向量，维度是ESM3_HIDDEN_DIM
+                        features.append(torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype))
                 
-                stacked_features = torch.stack(features)  # [batch_size, fixed_seq_length]
+                stacked_features = torch.stack(features)  # [batch_size, ESM3_HIDDEN_DIM]
                 
             except Exception as e:
                 print(f"[WARNING] Token processing failed: {str(e)}, falling back to zero features")
                 import traceback
                 traceback.print_exc()
-                stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(batch_size, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs:
-            # print(f"[回归模型调试] 使用预编码的嵌入，形状: {inputs['embeddings'].shape}")
             embeddings = inputs["embeddings"].to(device=device, dtype=model_dtype)
-            # 如果是高维嵌入，需要转换为固定长度
+            # 如果是3D嵌入 [batch_size, seq_len, hidden_dim]，做mean pooling得到 [batch_size, hidden_dim]
             if embeddings.dim() == 3:
-                # [batch_size, seq_len, hidden_dim] -> [batch_size, seq_len]
-                embeddings = embeddings.mean(dim=2)
-            stacked_features = self._pad_or_truncate_features(embeddings, self.fixed_seq_length)
+                stacked_features = embeddings.mean(dim=1)  # [batch_size, hidden_dim]
+            else:
+                stacked_features = embeddings
         
         elif "sequences" in inputs:
-            # print(f"[Regression model debug] Processing raw sequences, count: {len(inputs['sequences'])}")
             sequences = inputs["sequences"]
-            
-            # Check if model is ESMC or ESM3
             model_type = getattr(self, 'model_type', 'esm3')
             
-            if model_type == "esmc":
-                # Process sequences using ESMC
-                from esm.sdk.api import ESMProtein, LogitsConfig
-                
-                features = []
-                for i, seq in enumerate(sequences):
-                    try:
-                        protein = ESMProtein(sequence=seq)
-                        with torch.no_grad():
-                            # Encode protein
-                            protein_tensor = self.model.encode(protein)
-                            # Get embeddings from logits
-                            logits_output = self.model.logits(
-                                protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
-                            )
-                            # Use embeddings from ESMC
-                            if hasattr(logits_output, 'embeddings') and logits_output.embeddings is not None:
-                                # embeddings shape: [seq_len, hidden_dim]
-                                seq_embeddings = logits_output.embeddings
-                                # Mean pool over hidden dimension to get [seq_len]
-                                seq_feature = seq_embeddings.mean(dim=-1).float()
-                                
-                                # Truncate or pad to fixed length
-                                if len(seq_feature) > self.fixed_seq_length:
-                                    seq_feature = seq_feature[:self.fixed_seq_length]
-                                elif len(seq_feature) < self.fixed_seq_length:
-                                    padding_size = self.fixed_seq_length - len(seq_feature)
-                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
-                                    seq_feature = torch.cat([seq_feature, padding])
-                                
-                                features.append(seq_feature.to(device=device, dtype=model_dtype))
-                                # print(f"[Regression model debug] Sequence {i} ESMC encoding completed, fixed length: {seq_feature.shape}")
+            features = []
+            for i, seq in enumerate(sequences):
+                try:
+                    from esm.sdk.api import ESMProtein
+                    protein = ESMProtein(sequence=seq)
+                    
+                    # 使用ESM3 forward获取嵌入
+                    with torch.set_grad_enabled(self.training):
+                        with torch.cuda.amp.autocast(enabled=True, dtype=model_dtype):
+                            # 先encode获取token
+                            encoded = self.model.encode(protein)
+                            # 再forward获取嵌入
+                            output = self.model.forward(sequence_tokens=encoded.sequence.unsqueeze(0).to(device))
+                            
+                            if hasattr(output, 'embeddings') and output.embeddings is not None:
+                                # [1, seq_len, hidden_dim] -> [hidden_dim]
+                                seq_feature = output.embeddings.squeeze(0).mean(dim=0)
                             else:
-                                # print(f"[Regression model debug] Sequence {i} ESMC encoding failed, using zero vector")
-                                feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                                features.append(feature)
-                    except Exception as e:
-                        # print(f"[Regression model debug] Sequence {i} ESMC encoding error: {str(e)}")
-                        feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                        features.append(feature)
-            else:
-                # Process sequences using ESM3
-                from esm.sdk.api import ESMProtein
-                
-                features = []
-                for i, seq in enumerate(sequences):
-                    try:
-                        protein = ESMProtein(sequence=seq)
-                        with torch.no_grad():
-                            encoded_protein = self.model.encode(protein)
-                        
-                        # Extract sequence tokens
-                        if hasattr(encoded_protein, 'sequence'):
-                            seq_tokens = getattr(encoded_protein, 'sequence')
-                            if torch.is_tensor(seq_tokens):
-                                # Directly use tokens as features
-                                seq_feature = seq_tokens.float()
-                                # Truncate or pad to fixed length
-                                if len(seq_feature) > self.fixed_seq_length:
-                                    seq_feature = seq_feature[:self.fixed_seq_length]
-                                elif len(seq_feature) < self.fixed_seq_length:
-                                    padding_size = self.fixed_seq_length - len(seq_feature)
-                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
-                                    seq_feature = torch.cat([seq_feature, padding])
-                                
-                                features.append(seq_feature.to(device=device, dtype=model_dtype))
-                                # print(f"[Regression model debug] Sequence {i} encoding completed, fixed length: {seq_feature.shape}")
-                            else:
-                                # print(f"[Regression model debug] Sequence {i} encoding failed, using zero vector")
-                                feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                                features.append(feature)
-                        else:
-                            # print(f"[Regression model debug] Sequence {i} encoding failed, using zero vector")
-                            feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                            features.append(feature)
-                    except Exception as e:
-                        # print(f"[Regression model debug] Sequence {i} encoding error: {str(e)}")
-                        feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                        features.append(feature)
+                                seq_feature = torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
+                    
+                    features.append(seq_feature.to(dtype=model_dtype))
+                except Exception as e:
+                    print(f"[WARNING] Sequence {i} encoding error: {str(e)}")
+                    features.append(torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype))
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(1, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
 
         # 保留原有的ESM和ProtBERT逻辑作为兜底
         elif "inputs" in inputs:
@@ -555,7 +498,7 @@ class SaprotRegressionModel(SaprotBaseModel):
         
         else:
             # print(f"[回归模型调试] 输入中没有找到tokens、embeddings、sequences或inputs")
-            stacked_features = torch.zeros(1, self.fixed_seq_length, device=device, dtype=model_dtype)
+            stacked_features = torch.zeros(1, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
