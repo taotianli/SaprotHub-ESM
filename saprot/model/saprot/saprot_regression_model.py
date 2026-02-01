@@ -86,28 +86,9 @@ class SimpleRegressionMetrics:
         
         # Spearman需要至少3个样本才能有效计算
         if len(preds) < 3:
-            # 对于小样本，返回Pearson相关系数作为替代
             return self.compute_pearson()
         
-        # 优先尝试使用scipy计算（更准确，能处理相同排名）
-        try:
-            from scipy.stats import spearmanr
-            import warnings
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', category=RuntimeWarning)
-                corr, _ = spearmanr(preds.numpy(), targets.numpy())
-            # 检查是否为nan
-            if float(corr) != float(corr):  # NaN check (NaN != NaN)
-                return 0.0
-            return float(corr)
-        except ImportError:
-            # scipy不可用时，使用纯PyTorch实现
-            pass
-        except Exception as e:
-            # 其他异常时，也使用纯PyTorch实现
-            print(f"scipy spearmanr failed: {e}, using PyTorch implementation")
-        
-        # 纯PyTorch实现的Spearman相关系数
+        # 直接使用纯PyTorch实现，避免NumPy 2.x与scipy的兼容性问题
         # Spearman = Pearson correlation of ranks
         try:
             rank_preds = self._get_ranks(preds)
@@ -132,7 +113,7 @@ class SimpleRegressionMetrics:
             
             return result
         except Exception as e:
-            print(f"PyTorch Spearman calculation failed: {e}")
+            print(f"Spearman calculation failed: {e}")
             return 0.0
     
     def compute_r2(self):
