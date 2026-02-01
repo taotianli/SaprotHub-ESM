@@ -68,13 +68,6 @@ class SimpleRegressionMetrics:
         
         return result
     
-    def _get_ranks(self, x):
-        """计算排名（用于Spearman相关系数）"""
-        sorted_indices = torch.argsort(x)
-        ranks = torch.zeros_like(x, dtype=torch.float)
-        ranks[sorted_indices] = torch.arange(1, len(x) + 1, dtype=torch.float, device=x.device)
-        return ranks
-    
     def compute_spearman(self):
         """计算斯皮尔曼相关系数（使用排名）"""
         if len(self.preds) == 0:
@@ -86,28 +79,24 @@ class SimpleRegressionMetrics:
         if len(preds) < 3:
             return self.compute_pearson()
         
-        # 直接使用纯PyTorch实现，避免NumPy 2.x与scipy的兼容性问题
-        # Spearman = Pearson correlation of ranks
+        # 使用scipy计算，通过np.array()显式转换避免NumPy 2.x兼容性问题
         try:
-            rank_preds = self._get_ranks(preds)
-            rank_targets = self._get_ranks(targets)
+            from scipy.stats import spearmanr
+            import numpy as np
+            import warnings
             
-            vx = rank_preds - torch.mean(rank_preds)
-            vy = rank_targets - torch.mean(rank_targets)
+            # 显式转换为numpy array，避免_CopyMode.IF_NEEDED错误
+            preds_np = np.array(preds.cpu().numpy(), dtype=np.float64)
+            targets_np = np.array(targets.cpu().numpy(), dtype=np.float64)
             
-            std_x = torch.sqrt(torch.sum(vx ** 2))
-            std_y = torch.sqrt(torch.sum(vy ** 2))
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=RuntimeWarning)
+                corr, _ = spearmanr(preds_np, targets_np)
             
-            if std_x == 0 or std_y == 0:
+            # 检查是否为nan
+            if np.isnan(corr):
                 return 0.0
-            
-            corr = torch.sum(vx * vy) / (std_x * std_y)
-            result = corr.item()
-            
-            if result != result:  # NaN check
-                return 0.0
-            
-            return result
+            return float(corr)
         except Exception as e:
             print(f"Spearman calculation failed: {e}")
             return 0.0
