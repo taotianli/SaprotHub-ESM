@@ -159,11 +159,18 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="regression", **kwargs)
         
-        # 创建回归头：输入维度是ESM3的hidden_dim (1536)
-        # 使用mean pooling后的全局特征作为输入
-        self.regression_head = torch.nn.Linear(self.ESM3_HIDDEN_DIM, 1)
+        # 创建回归头：
+        # 1. LayerNorm归一化ESM3的嵌入（值范围很大，需要归一化）
+        # 2. 线性层映射到输出
+        self.feature_norm = torch.nn.LayerNorm(self.ESM3_HIDDEN_DIM)
+        self.regression_head = torch.nn.Sequential(
+            torch.nn.Linear(self.ESM3_HIDDEN_DIM, 256),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(256, 1)
+        )
         
-        print(f"[INFO] 创建回归头: {self.ESM3_HIDDEN_DIM} -> 1 (使用ESM3 hidden_dim)")
+        print(f"[INFO] 创建回归头: LayerNorm({self.ESM3_HIDDEN_DIM}) -> Linear(1536, 256) -> ReLU -> Linear(256, 1)")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
@@ -503,28 +510,25 @@ class SaprotRegressionModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # print(f"[回归模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
-
-        # 确保回归头在正确的设备和数据类型上
+        # 确保归一化层和回归头在正确的设备和数据类型上
+        self.feature_norm = self.feature_norm.to(device=device, dtype=model_dtype)
         self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
+        
+        # 对特征进行归一化（ESM3嵌入值范围很大，需要归一化）
+        normalized_features = self.feature_norm(stacked_features)
         
         # #region agent log
         # Debug logging for feature and regression head analysis
         try:
             print(f"\n[DEBUG forward_features]")
-            print(f"  stacked_features: shape={list(stacked_features.shape)}, dtype={stacked_features.dtype}, device={stacked_features.device}")
-            print(f"  stacked_features: min={stacked_features.min().item():.4f}, max={stacked_features.max().item():.4f}, mean={stacked_features.mean().item():.4f}, std={stacked_features.std().item():.4f}")
-            print(f"  stacked_features_nonzero_ratio={(stacked_features != 0).sum().item() / stacked_features.numel():.4f}")
-            print(f"  regression_head_weight: min={self.regression_head.weight.min().item():.6f}, max={self.regression_head.weight.max().item():.6f}, mean={self.regression_head.weight.mean().item():.6f}")
-            if self.regression_head.bias is not None:
-                print(f"  regression_head_bias={self.regression_head.bias.item():.6f}")
+            print(f"  stacked_features (raw): shape={list(stacked_features.shape)}, min={stacked_features.min().item():.4f}, max={stacked_features.max().item():.4f}, mean={stacked_features.mean().item():.4f}, std={stacked_features.std().item():.4f}")
+            print(f"  normalized_features: min={normalized_features.min().item():.4f}, max={normalized_features.max().item():.4f}, mean={normalized_features.mean().item():.4f}, std={normalized_features.std().item():.4f}")
         except Exception as e:
             pass
         # #endregion
         
-        # Forward pass - 不使用squeeze，保持与classification一致
-        logits = self.regression_head(stacked_features)
-        # print(f"[回归模型调试] 回归输出形状: {logits.shape}")
+        # Forward pass through regression head
+        logits = self.regression_head(normalized_features)
         
         return logits
 
@@ -593,6 +597,15 @@ class SaprotRegressionModel(SaprotBaseModel):
         
         # print(f"ESM3模型可训练参数数量: {esm3_param_count}")
         
+        # 添加特征归一化层参数
+        feature_norm_param_count = 0
+        if hasattr(self, 'feature_norm') and self.feature_norm is not None:
+            for name, param in self.feature_norm.named_parameters():
+                if param.requires_grad:
+                    full_name = f"feature_norm.{name}"
+                    all_params.append((full_name, param))
+                    feature_norm_param_count += 1
+        
         # 添加回归头参数
         regression_head_param_count = 0
         if hasattr(self, 'regression_head') and self.regression_head is not None:
@@ -601,13 +614,13 @@ class SaprotRegressionModel(SaprotBaseModel):
                     full_name = f"regression_head.{name}"
                     all_params.append((full_name, param))
                     regression_head_param_count += 1
-                    # print(f"  添加到优化器: {full_name}")
         
         # #region agent log
         # Debug logging for optimizer initialization
         try:
             print(f"\n[DEBUG init_optimizers]")
             print(f"  esm3_param_count={esm3_param_count}")
+            print(f"  feature_norm_param_count={feature_norm_param_count}")
             print(f"  regression_head_param_count={regression_head_param_count}")
             print(f"  total_param_count={len(all_params)}")
             print(f"  weight_decay={weight_decay}")
@@ -730,6 +743,13 @@ class SaprotRegressionModel(SaprotBaseModel):
             
             total_params = 0
             
+            # 保存特征归一化层的权重
+            if hasattr(self, 'feature_norm') and self.feature_norm is not None:
+                feature_norm_state = self.feature_norm.state_dict()
+                state_dict["feature_norm"] = feature_norm_state
+                param_count = sum(p.numel() for p in self.feature_norm.parameters())
+                total_params += param_count
+            
             # 保存回归头的权重
             if hasattr(self, 'regression_head') and self.regression_head is not None:
                 regression_head_state = self.regression_head.state_dict()
@@ -737,8 +757,6 @@ class SaprotRegressionModel(SaprotBaseModel):
                 
                 param_count = sum(p.numel() for p in self.regression_head.parameters())
                 total_params += param_count
-                # print(f"保存回归头权重:")
-                # print(f"  - 参数数量: {param_count:,}")
             
             # 检查是否使用了LoRA，如果是则保存LoRA参数
             from saprot.utils.esm3_lora import ESM3LoRAWrapper
@@ -823,16 +841,19 @@ class SaprotRegressionModel(SaprotBaseModel):
             if "regression_head" in state_dict:
                 # New format: contains regression head (and possibly LoRA weights)
                 regression_head_state = state_dict["regression_head"]
-                fixed_seq_length = state_dict.get("fixed_seq_length", self.fixed_seq_length)
                 
-                # print(f"Loading weights:")
-                # print(f"  - File: {checkpoint_path}")
-                # print(f"  - Sequence length: {fixed_seq_length}")
+                # 加载特征归一化层
+                if "feature_norm" in state_dict and hasattr(self, 'feature_norm'):
+                    try:
+                        self.feature_norm.load_state_dict(state_dict["feature_norm"])
+                    except Exception as e:
+                        print(f"Warning: Could not load feature_norm: {e}")
                 
-                # Verify dimension matching
-                if fixed_seq_length == self.fixed_seq_length:
+                # 加载回归头
+                try:
                     self.regression_head.load_state_dict(regression_head_state)
-                    # print(f"Regression head weights loaded successfully")
+                except Exception as e:
+                    print(f"Warning: Could not load regression_head (architecture may have changed): {e}")
                     
                     # Check if there are LoRA weights
                     if "lora" in state_dict:
