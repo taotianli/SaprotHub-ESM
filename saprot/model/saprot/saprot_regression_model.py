@@ -145,18 +145,11 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="regression", **kwargs)
         
-        # 创建回归头：
-        # 1. LayerNorm归一化ESM3的嵌入（值范围很大，需要归一化）
-        # 2. 线性层映射到输出
-        self.feature_norm = torch.nn.LayerNorm(self.ESM3_HIDDEN_DIM)
-        self.regression_head = torch.nn.Sequential(
-            torch.nn.Linear(self.ESM3_HIDDEN_DIM, 256),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(256, 1)
-        )
+        # 创建简单的回归头：单一线性层
+        # 使用普通标准化（在forward中计算），不添加额外的LayerNorm层
+        self.regression_head = torch.nn.Linear(self.ESM3_HIDDEN_DIM, 1)
         
-        print(f"[INFO] 创建回归头: LayerNorm({self.ESM3_HIDDEN_DIM}) -> Linear(1536, 256) -> ReLU -> Linear(256, 1)")
+        print(f"[INFO] 创建回归头: Linear({self.ESM3_HIDDEN_DIM}, 1) with standard normalization")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
@@ -459,12 +452,15 @@ class SaprotRegressionModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # 确保归一化层和回归头在正确的设备和数据类型上
-        self.feature_norm = self.feature_norm.to(device=device, dtype=model_dtype)
-        self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
+        # 使用普通标准化：(x - mean) / (std + eps)
+        # 按特征维度计算统计量，对每个样本独立归一化
+        eps = 1e-6
+        feat_mean = stacked_features.mean(dim=-1, keepdim=True)
+        feat_std = stacked_features.std(dim=-1, keepdim=True)
+        normalized_features = (stacked_features - feat_mean) / (feat_std + eps)
         
-        # 对特征进行归一化（ESM3嵌入值范围很大，需要归一化）
-        normalized_features = self.feature_norm(stacked_features)
+        # 确保回归头在正确的设备和数据类型上
+        self.regression_head = self.regression_head.to(device=device, dtype=model_dtype)
         
         # Forward pass through regression head
         logits = self.regression_head(normalized_features)
@@ -522,15 +518,6 @@ class SaprotRegressionModel(SaprotBaseModel):
                     esm3_param_count += 1
         
         # print(f"ESM3模型可训练参数数量: {esm3_param_count}")
-        
-        # 添加特征归一化层参数
-        feature_norm_param_count = 0
-        if hasattr(self, 'feature_norm') and self.feature_norm is not None:
-            for name, param in self.feature_norm.named_parameters():
-                if param.requires_grad:
-                    full_name = f"feature_norm.{name}"
-                    all_params.append((full_name, param))
-                    feature_norm_param_count += 1
         
         # 添加回归头参数
         regression_head_param_count = 0
@@ -654,13 +641,6 @@ class SaprotRegressionModel(SaprotBaseModel):
             
             total_params = 0
             
-            # 保存特征归一化层的权重
-            if hasattr(self, 'feature_norm') and self.feature_norm is not None:
-                feature_norm_state = self.feature_norm.state_dict()
-                state_dict["feature_norm"] = feature_norm_state
-                param_count = sum(p.numel() for p in self.feature_norm.parameters())
-                total_params += param_count
-            
             # 保存回归头的权重
             if hasattr(self, 'regression_head') and self.regression_head is not None:
                 regression_head_state = self.regression_head.state_dict()
@@ -752,13 +732,6 @@ class SaprotRegressionModel(SaprotBaseModel):
             if "regression_head" in state_dict:
                 # New format: contains regression head (and possibly LoRA weights)
                 regression_head_state = state_dict["regression_head"]
-                
-                # 加载特征归一化层
-                if "feature_norm" in state_dict and hasattr(self, 'feature_norm'):
-                    try:
-                        self.feature_norm.load_state_dict(state_dict["feature_norm"])
-                    except Exception as e:
-                        print(f"Warning: Could not load feature_norm: {e}")
                 
                 # 加载回归头
                 try:
