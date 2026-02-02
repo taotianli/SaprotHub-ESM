@@ -106,14 +106,11 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         
         # 对于pair分类，我们需要两倍的hidden_size，因为要处理两个序列
         hidden_size = hidden_size * 2
+        self.pair_hidden_size = hidden_size  # 保存用于forward中的标准化
         
-        # 创建分类头
-        self.classification_head = torch.nn.Sequential(
-            torch.nn.Linear(hidden_size, hidden_size // 2),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(hidden_size // 2, self.num_labels)
-        )
+        # 创建简单的分类头：单一线性层
+        # 使用普通标准化（在forward中计算），不添加额外的LayerNorm层
+        self.classification_head = torch.nn.Linear(hidden_size, self.num_labels)
         
         # 确保分类头参数可训练
         for param in self.classification_head.parameters():
@@ -282,42 +279,66 @@ class SaprotPairClassificationModel(SaprotBaseModel):
             else:
                 hidden_size = 2560  # ESM3的标准隐藏维度
         
-        # 优先处理tokens
+        # 优先处理tokens - 使用ESM3获取真正的语义嵌入
         if "tokens" in inputs_1 and "tokens" in inputs_2:
             tokens_1 = inputs_1["tokens"].to(device=device)
             tokens_2 = inputs_2["tokens"].to(device=device)
+            batch_size = tokens_1.shape[0]
             
-            # 将tokens转换为浮点数类型并进行截断/padding
             try:
-                tokens_1_float = tokens_1.float().to(dtype=model_dtype)
-                tokens_2_float = tokens_2.float().to(dtype=model_dtype)
+                features_1 = []
+                features_2 = []
                 
-                if tokens_1_float.dim() == 2 and tokens_2_float.dim() == 2:
-                    # 将tokens转换为嵌入维度
-                    features_1 = tokens_1_float.unsqueeze(-1).expand(-1, -1, hidden_size)
-                    features_2 = tokens_2_float.unsqueeze(-1).expand(-1, -1, hidden_size)
+                for i in range(batch_size):
+                    # 处理第一个序列
+                    sample_tokens_1 = tokens_1[i]
+                    non_zero_mask_1 = sample_tokens_1 != 0
+                    actual_len_1 = max(non_zero_mask_1.sum().item(), 1)
+                    actual_tokens_1 = sample_tokens_1[:actual_len_1]
                     
-                    # 截断或padding到固定长度
-                    features_1 = self._pad_or_truncate_features(features_1, self.fixed_seq_length)
-                    features_2 = self._pad_or_truncate_features(features_2, self.fixed_seq_length)
+                    # 处理第二个序列
+                    sample_tokens_2 = tokens_2[i]
+                    non_zero_mask_2 = sample_tokens_2 != 0
+                    actual_len_2 = max(non_zero_mask_2.sum().item(), 1)
+                    actual_tokens_2 = sample_tokens_2[:actual_len_2]
                     
-                    # 平均池化得到序列表示
-                    features_1 = features_1.mean(dim=1)  # [batch_size, hidden_size]
-                    features_2 = features_2.mean(dim=1)  # [batch_size, hidden_size]
-                    
-                    # 连接两个序列的特征
-                    stacked_features = torch.cat([features_1, features_2], dim=1)  # [batch_size, hidden_size*2]
-                    # print(f"[DEBUG-TOKENS-BRANCH] Created stacked_features: {stacked_features.shape}")
-                else:
-                    batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
-                    stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
-                    # print(f"[DEBUG-TOKENS-ELSE] Created zero stacked_features: {stacked_features.shape}")
+                    try:
+                        # 使用ESM3获取嵌入
+                        with torch.set_grad_enabled(self.training):
+                            with torch.cuda.amp.autocast(enabled=True, dtype=model_dtype):
+                                output_1 = self.model.forward(
+                                    sequence_tokens=actual_tokens_1.unsqueeze(0).long().to(device)
+                                )
+                                output_2 = self.model.forward(
+                                    sequence_tokens=actual_tokens_2.unsqueeze(0).long().to(device)
+                                )
+                            
+                            # 提取嵌入并做mean pooling
+                            if hasattr(output_1, 'embeddings') and output_1.embeddings is not None:
+                                seq_feature_1 = output_1.embeddings.squeeze(0).mean(dim=0)
+                            else:
+                                seq_feature_1 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                            
+                            if hasattr(output_2, 'embeddings') and output_2.embeddings is not None:
+                                seq_feature_2 = output_2.embeddings.squeeze(0).mean(dim=0)
+                            else:
+                                seq_feature_2 = torch.zeros(hidden_size, device=device, dtype=model_dtype)
+                        
+                        features_1.append(seq_feature_1.to(dtype=model_dtype))
+                        features_2.append(seq_feature_2.to(dtype=model_dtype))
+                        
+                    except Exception as e:
+                        features_1.append(torch.zeros(hidden_size, device=device, dtype=model_dtype))
+                        features_2.append(torch.zeros(hidden_size, device=device, dtype=model_dtype))
+                
+                # 堆叠特征并连接
+                stacked_1 = torch.stack(features_1)  # [batch_size, hidden_size]
+                stacked_2 = torch.stack(features_2)  # [batch_size, hidden_size]
+                stacked_features = torch.cat([stacked_1, stacked_2], dim=1)  # [batch_size, hidden_size*2]
                 
             except Exception as e:
-                # print(f"[DEBUG-TOKENS-EXCEPTION] Exception in tokens branch: {e}")
                 batch_size = tokens_1.shape[0] if tokens_1.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, hidden_size * 2, device=device, dtype=model_dtype)
-                # print(f"[DEBUG-TOKENS-EXCEPTION] Created zero stacked_features: {stacked_features.shape}")
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
@@ -520,29 +541,17 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # Debug: print shape before classification head (commented out for production)
-        # if not hasattr(self, '_forward_debug_count'):
-        #     self._forward_debug_count = 0
-        # if self._forward_debug_count < 5:
-        #     print(f"\n[DEBUG] Forward pass {self._forward_debug_count + 1}:")
-        #     print(f"  stacked_features.shape: {stacked_features.shape}")
-        #     print(f"  Expected shape: [batch_size, {hidden_size * 2}]")
-        #     print(f"  classification_head first layer input size: {self.classification_head[0].in_features}")
-        #     if "tokens" in inputs_1 and "tokens" in inputs_2:
-        #         print(f"  Input source: tokens")
-        #     elif "embeddings" in inputs_1 and "embeddings" in inputs_2:
-        #         print(f"  Input source: embeddings")
-        #     elif "sequences" in inputs_1 and "sequences" in inputs_2:
-        #         print(f"  Input source: sequences")
-        #     else:
-        #         print(f"  Input source: unknown/fallback")
-        #     self._forward_debug_count += 1
+        # 使用普通标准化：(x - mean) / (std + eps)
+        eps = 1e-6
+        feat_mean = stacked_features.mean(dim=-1, keepdim=True)
+        feat_std = stacked_features.std(dim=-1, keepdim=True)
+        normalized_features = (stacked_features - feat_mean) / (feat_std + eps)
         
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
-        # Forward pass through the sequential classification head
-        logits = self.classification_head(stacked_features)
+        # Forward pass through the classification head
+        logits = self.classification_head(normalized_features)
         
         return logits
 

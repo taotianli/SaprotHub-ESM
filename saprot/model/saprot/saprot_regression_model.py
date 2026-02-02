@@ -149,7 +149,7 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 使用普通标准化（在forward中计算），不添加额外的LayerNorm层
         self.regression_head = torch.nn.Linear(self.ESM3_HIDDEN_DIM, 1)
         
-        print(f"[INFO] 创建回归头: Linear({self.ESM3_HIDDEN_DIM}, 1) with standard normalization")
+        # print(f"[INFO] 创建回归头: Linear({self.ESM3_HIDDEN_DIM}, 1) with standard normalization")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()

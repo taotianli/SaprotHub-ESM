@@ -122,21 +122,17 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         model_dtype = next(self.model.parameters()).dtype
         # print(f"[DEBUG] Model dtype: {model_dtype}")
         
-        # 创建分类头，确保使用正确的隐藏维度
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(hidden_size, hidden_size, dtype=model_dtype),
-            torch.nn.GELU(),
-            torch.nn.Dropout(0.1),
-            torch.nn.Linear(hidden_size, self.num_labels, dtype=model_dtype)
-        )
+        self.token_hidden_size = hidden_size  # 保存用于forward中的标准化
+        
+        # 创建简单的分类头：单一线性层
+        # 使用普通标准化（在forward中计算），不添加额外的LayerNorm层
+        self.classifier = torch.nn.Linear(hidden_size, self.num_labels, dtype=model_dtype)
         
         # 确保分类头在正确的设备上
         device = next(self.model.parameters()).device
         self.classifier = self.classifier.to(device=device, dtype=model_dtype)
         
         # print(f"Token classifier created with hidden_size={hidden_size} for {model_info}")
-        # print(f"{'='*60}\n")
     
     def compute_mcc(self, preds, target):
         tp = (preds * target).sum()
@@ -201,6 +197,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 hidden_states = torch.stack(hidden_states)
             # 确保hidden_states的数据类型与模型一致
             hidden_states = hidden_states.to(device=device, dtype=model_dtype)
+            # 使用普通标准化
+            eps = 1e-6
+            feat_mean = hidden_states.mean(dim=-1, keepdim=True)
+            feat_std = hidden_states.std(dim=-1, keepdim=True)
+            hidden_states = (hidden_states - feat_mean) / (feat_std + eps)
             logits = self.classifier(hidden_states)
         else:
             # 处理不同类型的输入
@@ -259,6 +260,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 # 确保token_embeddings需要梯度且数据类型正确
                 token_embeddings = token_embeddings.detach().requires_grad_(True)
                 token_embeddings = token_embeddings.to(dtype=model_dtype)
+                # 使用普通标准化
+                eps = 1e-6
+                feat_mean = token_embeddings.mean(dim=-1, keepdim=True)
+                feat_std = token_embeddings.std(dim=-1, keepdim=True)
+                token_embeddings = (token_embeddings - feat_mean) / (feat_std + eps)
                 logits = self.classifier(token_embeddings)
                     
             elif "embeddings" in inputs:
@@ -266,6 +272,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 # 确保embeddings需要梯度
                 if not embeddings.requires_grad:
                     embeddings = embeddings.detach().requires_grad_(True)
+                # 使用普通标准化
+                eps = 1e-6
+                feat_mean = embeddings.mean(dim=-1, keepdim=True)
+                feat_std = embeddings.std(dim=-1, keepdim=True)
+                embeddings = (embeddings - feat_mean) / (feat_std + eps)
                 logits = self.classifier(embeddings)
                 
             elif "sequences" in inputs:
@@ -424,6 +435,11 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
                 # 确保sequence_embeddings需要梯度且数据类型正确
                 sequence_embeddings = sequence_embeddings.detach().requires_grad_(True)
                 sequence_embeddings = sequence_embeddings.to(dtype=model_dtype)
+                # 使用普通标准化
+                eps = 1e-6
+                feat_mean = sequence_embeddings.mean(dim=-1, keepdim=True)
+                feat_std = sequence_embeddings.std(dim=-1, keepdim=True)
+                sequence_embeddings = (sequence_embeddings - feat_mean) / (feat_std + eps)
                 logits = self.classifier(sequence_embeddings)
                     
             else:

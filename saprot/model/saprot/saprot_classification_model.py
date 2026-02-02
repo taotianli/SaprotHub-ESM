@@ -214,31 +214,51 @@ class SaprotClassificationModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # 优先处理tokens
+        # 优先处理tokens - 使用ESM3获取真正的语义嵌入
         if "tokens" in inputs:
-            # print(f"[模型调试] 使用tokens，形状: {inputs['tokens'].shape}")
             tokens = inputs["tokens"].to(device=device)
+            batch_size = tokens.shape[0]
             
-            # 将tokens转换为浮点数类型并进行截断/padding
             try:
-                tokens_float = tokens.float().to(dtype=model_dtype)
+                features = []
+                for i in range(batch_size):
+                    sample_tokens = tokens[i]
+                    non_zero_mask = sample_tokens != 0
+                    actual_len = max(non_zero_mask.sum().item(), 1)
+                    actual_tokens = sample_tokens[:actual_len]
+                    
+                    try:
+                        # 使用ESM3获取嵌入
+                        with torch.set_grad_enabled(self.training):
+                            with torch.cuda.amp.autocast(enabled=True, dtype=model_dtype):
+                                output = self.model.forward(
+                                    sequence_tokens=actual_tokens.unsqueeze(0).long().to(device)
+                                )
+                            
+                            # 提取嵌入
+                            if hasattr(output, 'embeddings') and output.embeddings is not None:
+                                # embeddings: [1, seq_len, hidden_dim]
+                                seq_embedding = output.embeddings.squeeze(0)  # [seq_len, hidden_dim]
+                                # 对hidden_dim做mean pooling，得到 [seq_len]
+                                seq_feature = seq_embedding.mean(dim=-1).float()
+                                
+                                # 截断或padding到固定长度
+                                if len(seq_feature) > self.fixed_seq_length:
+                                    seq_feature = seq_feature[:self.fixed_seq_length]
+                                elif len(seq_feature) < self.fixed_seq_length:
+                                    padding_size = self.fixed_seq_length - len(seq_feature)
+                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                    seq_feature = torch.cat([seq_feature.to(dtype=model_dtype), padding])
+                                
+                                features.append(seq_feature.to(device=device, dtype=model_dtype))
+                            else:
+                                features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
+                    except Exception as e:
+                        features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
                 
-                if tokens_float.dim() == 2:
-                    batch_size, seq_len = tokens_float.shape
-                    # print(f"[模型调试] 原始序列长度: {seq_len}, 目标长度: {self.fixed_seq_length}")
-                    
-                    # 截断或padding到固定长度
-                    stacked_features = self._pad_or_truncate_features(tokens_float, self.fixed_seq_length)
-                    # print(f"[模型调试] 处理后特征形状: {stacked_features.shape}")
-                    
-                else:
-                    # print(f"[模型调试] tokens维度不符合预期: {tokens_float.shape}")
-                    # 创建固定长度的零特征
-                    batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
-                    stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
+                stacked_features = torch.stack(features)  # [batch_size, fixed_seq_length]
                 
             except Exception as e:
-                # print(f"[模型调试] tokens处理失败: {str(e)}")
                 batch_size = tokens.shape[0] if tokens.dim() > 0 else 1
                 stacked_features = torch.zeros(batch_size, self.fixed_seq_length, device=device, dtype=model_dtype)
         
@@ -300,44 +320,42 @@ class SaprotClassificationModel(SaprotBaseModel):
                         feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
                         features.append(feature)
             else:
-                # Process sequences using ESM3
+                # Process sequences using ESM3 - 获取真正的语义嵌入
                 from esm.sdk.api import ESMProtein
                 
                 features = []
                 for i, seq in enumerate(sequences):
                     try:
                         protein = ESMProtein(sequence=seq)
-                        with torch.no_grad():
-                            encoded_protein = self.model.encode(protein)
                         
-                        # Extract sequence tokens
-                        if hasattr(encoded_protein, 'sequence'):
-                            seq_tokens = getattr(encoded_protein, 'sequence')
-                            if torch.is_tensor(seq_tokens):
-                                # 直接使用tokens作为特征
-                                seq_feature = seq_tokens.float()
-                                # 截断或padding到固定长度
-                                if len(seq_feature) > self.fixed_seq_length:
-                                    seq_feature = seq_feature[:self.fixed_seq_length]
-                                elif len(seq_feature) < self.fixed_seq_length:
-                                    padding_size = self.fixed_seq_length - len(seq_feature)
-                                    padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
-                                    seq_feature = torch.cat([seq_feature, padding])
+                        # 使用ESM3 forward获取嵌入
+                        with torch.set_grad_enabled(self.training):
+                            with torch.cuda.amp.autocast(enabled=True, dtype=model_dtype):
+                                # 先encode获取token
+                                encoded = self.model.encode(protein)
+                                # 再forward获取嵌入
+                                output = self.model.forward(sequence_tokens=encoded.sequence.unsqueeze(0).to(device))
                                 
-                                features.append(seq_feature.to(device=device, dtype=model_dtype))
-                                # print(f"[模型调试] 序列 {i} 编码完成，固定长度: {seq_feature.shape}")
-                            else:
-                                # print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
-                                feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                                features.append(feature)
-                        else:
-                            # print(f"[模型调试] 序列 {i} 编码失败，使用零向量")
-                            feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                            features.append(feature)
+                                # 提取嵌入
+                                if hasattr(output, 'embeddings') and output.embeddings is not None:
+                                    # embeddings: [1, seq_len, hidden_dim]
+                                    seq_embedding = output.embeddings.squeeze(0)  # [seq_len, hidden_dim]
+                                    # 对hidden_dim做mean pooling，得到 [seq_len]
+                                    seq_feature = seq_embedding.mean(dim=-1).float()
+                                    
+                                    # 截断或padding到固定长度
+                                    if len(seq_feature) > self.fixed_seq_length:
+                                        seq_feature = seq_feature[:self.fixed_seq_length]
+                                    elif len(seq_feature) < self.fixed_seq_length:
+                                        padding_size = self.fixed_seq_length - len(seq_feature)
+                                        padding = torch.zeros(padding_size, device=device, dtype=model_dtype)
+                                        seq_feature = torch.cat([seq_feature.to(dtype=model_dtype), padding])
+                                    
+                                    features.append(seq_feature.to(device=device, dtype=model_dtype))
+                                else:
+                                    features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
                     except Exception as e:
-                        # print(f"[模型调试] 序列 {i} 编码出错: {str(e)}")
-                        feature = torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype)
-                        features.append(feature)
+                        features.append(torch.zeros(self.fixed_seq_length, device=device, dtype=model_dtype))
             
             if features:
                 stacked_features = torch.stack(features)
@@ -351,13 +369,17 @@ class SaprotClassificationModel(SaprotBaseModel):
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
         
-        # print(f"[模型调试] 最终特征维度: {stacked_features.shape} (固定长度: {self.fixed_seq_length})")
+        # 使用普通标准化：(x - mean) / (std + eps)
+        eps = 1e-6
+        feat_mean = stacked_features.mean(dim=-1, keepdim=True)
+        feat_std = stacked_features.std(dim=-1, keepdim=True)
+        normalized_features = (stacked_features - feat_mean) / (feat_std + eps)
 
         # 确保分类头在正确的设备和数据类型上
         self.classification_head = self.classification_head.to(device=device, dtype=model_dtype)
         
         # Forward pass
-        logits = self.classification_head(stacked_features)
+        logits = self.classification_head(normalized_features)
         # print(f"[模型调试] 分类输出形状: {logits.shape}")
         
         return logits
