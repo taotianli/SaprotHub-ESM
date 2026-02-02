@@ -89,20 +89,6 @@ class SimpleRegressionMetrics:
             preds_np = np.array(preds.cpu().numpy(), dtype=np.float64)
             targets_np = np.array(targets.cpu().numpy(), dtype=np.float64)
             
-            # #region agent log
-            # Debug logging for spearman calculation
-            try:
-                print(f"\n[DEBUG compute_spearman]")
-                print(f"  num_samples={len(preds_np)}")
-                print(f"  preds_unique_count={len(np.unique(preds_np))}, targets_unique_count={len(np.unique(targets_np))}")
-                print(f"  preds: min={np.min(preds_np):.6f}, max={np.max(preds_np):.6f}, std={np.std(preds_np):.6f}")
-                print(f"  targets: min={np.min(targets_np):.6f}, max={np.max(targets_np):.6f}, std={np.std(targets_np):.6f}")
-                print(f"  preds_first_10={preds_np[:10].tolist() if len(preds_np) >= 10 else preds_np.tolist()}")
-                print(f"  targets_first_10={targets_np[:10].tolist() if len(targets_np) >= 10 else targets_np.tolist()}")
-            except Exception as e:
-                pass
-            # #endregion
-            
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', category=RuntimeWarning)
                 corr, _ = spearmanr(preds_np, targets_np)
@@ -314,25 +300,6 @@ class SaprotRegressionModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # #region agent log
-        # Debug logging for input analysis
-        try:
-            print(f"\n[DEBUG forward_input]")
-            if "tokens" in inputs:
-                t = inputs["tokens"]
-                print(f"  tokens_shape={list(t.shape)}, dtype={t.dtype}, device={t.device}")
-                print(f"  tokens: min={t.float().min().item():.4f}, max={t.float().max().item():.4f}, mean={t.float().mean().item():.4f}")
-                print(f"  tokens_nonzero_ratio={(t != 0).sum().item() / t.numel():.4f}")
-            elif "embeddings" in inputs:
-                print(f"  has_embeddings=True, shape={list(inputs['embeddings'].shape)}")
-            elif "sequences" in inputs:
-                print(f"  has_sequences=True, num_sequences={len(inputs['sequences'])}")
-            else:
-                print(f"  input_keys={list(inputs.keys())}")
-        except Exception as e:
-            pass
-        # #endregion
-        
         # 优先处理tokens - 需要通过ESM3获取语义嵌入
         if "tokens" in inputs:
             tokens = inputs["tokens"].to(device=device)
@@ -370,21 +337,6 @@ class SaprotRegressionModel(SaprotBaseModel):
                                     sequence_tokens=sequence_tokens_input,
                                 )
                             
-                            # 调试：打印output的属性
-                            if i == 0 and batch_size > 0:
-                                output_attrs = [attr for attr in dir(output) if not attr.startswith('_')]
-                                print(f"\n[DEBUG ESM3 output] attributes: {output_attrs}")
-                                for attr in ['embeddings', 'sequence_logits', 'logits', 'hidden_states']:
-                                    if hasattr(output, attr):
-                                        val = getattr(output, attr)
-                                        if val is not None:
-                                            if hasattr(val, 'shape'):
-                                                print(f"  {attr}: shape={val.shape}, dtype={val.dtype}")
-                                            else:
-                                                print(f"  {attr}: type={type(val)}")
-                                        else:
-                                            print(f"  {attr}: None")
-                            
                             # 从输出中提取嵌入
                             if hasattr(output, 'embeddings') and output.embeddings is not None:
                                 # embeddings: [1, seq_len, hidden_dim] 例如 [1, 190, 1536]
@@ -393,9 +345,6 @@ class SaprotRegressionModel(SaprotBaseModel):
                                 # 策略：对序列维度做mean pooling，保留hidden_dim作为特征
                                 # 这样每个蛋白质得到一个 [hidden_dim] 的向量，携带全局语义信息
                                 seq_feature = seq_embedding.mean(dim=0)  # [hidden_dim] = [1536]
-                                
-                                if i == 0:
-                                    print(f"[DEBUG] Using mean pooling over sequence: {seq_embedding.shape} -> {seq_feature.shape}")
                                 
                             elif hasattr(output, 'sequence_logits') and output.sequence_logits is not None:
                                 # 如果没有embeddings，使用sequence_logits
@@ -517,16 +466,6 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 对特征进行归一化（ESM3嵌入值范围很大，需要归一化）
         normalized_features = self.feature_norm(stacked_features)
         
-        # #region agent log
-        # Debug logging for feature and regression head analysis
-        try:
-            print(f"\n[DEBUG forward_features]")
-            print(f"  stacked_features (raw): shape={list(stacked_features.shape)}, min={stacked_features.min().item():.4f}, max={stacked_features.max().item():.4f}, mean={stacked_features.mean().item():.4f}, std={stacked_features.std().item():.4f}")
-            print(f"  normalized_features: min={normalized_features.min().item():.4f}, max={normalized_features.max().item():.4f}, mean={normalized_features.mean().item():.4f}, std={normalized_features.std().item():.4f}")
-        except Exception as e:
-            pass
-        # #endregion
-        
         # Forward pass through regression head
         logits = self.regression_head(normalized_features)
         
@@ -538,19 +477,6 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 确保形状匹配：flatten输出和标签
         outputs_flat = outputs.flatten()
         fitness_flat = fitness.flatten()
-        
-        # #region agent log
-        # Debug logging for hypothesis verification
-        try:
-            print(f"\n[DEBUG loss_func] stage={stage}")
-            print(f"  outputs_shape={list(outputs.shape)}, outputs_flat_shape={list(outputs_flat.shape)}")
-            print(f"  outputs: min={outputs_flat.min().item():.6f}, max={outputs_flat.max().item():.6f}, mean={outputs_flat.mean().item():.6f}, std={outputs_flat.std().item() if len(outputs_flat) > 1 else 0.0:.6f}")
-            print(f"  fitness: min={fitness_flat.min().item():.6f}, max={fitness_flat.max().item():.6f}, mean={fitness_flat.mean().item():.6f}, std={fitness_flat.std().item() if len(fitness_flat) > 1 else 0.0:.6f}")
-            print(f"  outputs_first_5={[float(x) for x in outputs_flat[:5].tolist()]}")
-            print(f"  fitness_first_5={[float(x) for x in fitness_flat[:5].tolist()]}")
-        except Exception as e:
-            pass
-        # #endregion
         
         loss = torch.nn.functional.mse_loss(outputs_flat, fitness_flat)
         
@@ -614,21 +540,6 @@ class SaprotRegressionModel(SaprotBaseModel):
                     full_name = f"regression_head.{name}"
                     all_params.append((full_name, param))
                     regression_head_param_count += 1
-        
-        # #region agent log
-        # Debug logging for optimizer initialization
-        try:
-            print(f"\n[DEBUG init_optimizers]")
-            print(f"  esm3_param_count={esm3_param_count}")
-            print(f"  feature_norm_param_count={feature_norm_param_count}")
-            print(f"  regression_head_param_count={regression_head_param_count}")
-            print(f"  total_param_count={len(all_params)}")
-            print(f"  weight_decay={weight_decay}")
-            print(f"  init_lr={self.lr_scheduler_kwargs.get('init_lr', 'N/A')}")
-            print(f"  lr_scheduler_class={self.lr_scheduler_kwargs.get('class', 'N/A')}")
-        except Exception as e:
-            pass
-        # #endregion
 
         # print(f"回归头可训练参数数量: {regression_head_param_count}")
         # print(f"总可训练参数数量: {len(all_params)}")
