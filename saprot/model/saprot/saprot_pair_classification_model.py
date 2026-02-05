@@ -118,9 +118,8 @@ class SaprotPairClassificationModel(SaprotBaseModel):
         if "ESMC" in model_class_name:
             return 960
         
-        # 默认返回 ESM3-open 的隐藏维度
-        # 注意：如果使用的是 ESM3-1.4B (Demo)，维度应该是 1536
-        return 2560
+        # 默认返回 ESM3-1.4B 的隐藏维度
+        return 1536
 
     def initialize_model(self):
         """初始化ESM3模型和分类头"""

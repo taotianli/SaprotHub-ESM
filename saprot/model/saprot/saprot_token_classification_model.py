@@ -106,8 +106,8 @@ class SaprotTokenClassificationModel(SaprotBaseModel):
         if "ESMC" in model_class_name:
             return 960
         
-        # 默认返回 ESM3-open 的隐藏维度
-        return 2560
+        # 默认返回 ESM3-1.4B 的隐藏维度
+        return 1536
     
     def _create_classifier(self):
         """创建分类头"""
