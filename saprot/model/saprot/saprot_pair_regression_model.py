@@ -194,7 +194,12 @@ class SaprotPairRegressionModel(SaprotBaseModel):
             with torch.no_grad():
                 output = self.model.forward(sequence_tokens=test_tokens)
                 if hasattr(output, 'embeddings') and output.embeddings is not None:
-                    return output.embeddings.shape[-1]
+                    hidden_size = output.embeddings.shape[-1]
+                    # 清理临时变量
+                    del output, test_tokens
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    return hidden_size
         except Exception:
             pass
         

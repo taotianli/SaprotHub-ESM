@@ -364,13 +364,28 @@ def finetune_pure_pytorch(config):
     trainer = PurePyTorchTrainer(config)
     
     # 训练
-    trainer.fit(model=model, datamodule=data_module)
-    
-    # 加载最佳模型并测试
-    if model.save_path is not None:
-        # print(f"\n从 {model.save_path} 加载最佳模型进行测试...")
-        model.load_checkpoint(model.save_path)
-        trainer.test(model=model, datamodule=data_module)
+    try:
+        trainer.fit(model=model, datamodule=data_module)
+        
+        # 加载最佳模型并测试
+        if model.save_path is not None:
+            # print(f"\n从 {model.save_path} 加载最佳模型进行测试...")
+            model.load_checkpoint(model.save_path)
+            trainer.test(model=model, datamodule=data_module)
+    finally:
+        # 清理 GPU 内存
+        if torch.cuda.is_available():
+            # 删除模型和数据引用
+            del model
+            del data_module
+            del trainer
+            
+            # 清空 CUDA 缓存
+            torch.cuda.empty_cache()
+            
+            # 强制垃圾回收
+            import gc
+            gc.collect()
 
 
 def main(args):
