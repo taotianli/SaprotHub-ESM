@@ -129,9 +129,6 @@ from utils.lr_scheduler import ConstantLRScheduler, CosineAnnealingLRScheduler, 
 
 @register_model
 class SaprotRegressionModel(SaprotBaseModel):
-    # ESM3的hidden_dim是1536
-    ESM3_HIDDEN_DIM = 1536
-    
     def __init__(self, test_result_path: str = None, fixed_seq_length: int = 2048, base_model_type: str = None, **kwargs):
         """
         Args:
@@ -145,14 +142,65 @@ class SaprotRegressionModel(SaprotBaseModel):
         self.base_model_type = base_model_type  # 保存base_model_type
         super().__init__(task="regression", **kwargs)
         
+        # 动态检测模型的隐藏维度
+        hidden_dim = self._get_model_hidden_size()
+        self.hidden_dim = hidden_dim  # 保存用于forward
+        
         # 创建简单的回归头：单一线性层
         # 使用普通标准化（在forward中计算），不添加额外的LayerNorm层
-        self.regression_head = torch.nn.Linear(self.ESM3_HIDDEN_DIM, 1)
+        self.regression_head = torch.nn.Linear(hidden_dim, 1)
         
-        # print(f"[INFO] 创建回归头: Linear({self.ESM3_HIDDEN_DIM}, 1) with standard normalization")
+        # print(f"[INFO] 创建回归头: Linear({hidden_dim}, 1) with standard normalization")
         
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
+    
+    def _get_model_hidden_size(self):
+        """
+        动态检测模型的隐藏维度
+        支持 ESM3 不同大小的模型 (open: 2560, 1.4B: 1536) 和 ESMC (960)
+        """
+        # 方法1: 尝试从 embed_tokens 获取
+        if hasattr(self.model, 'embed_tokens') and self.model.embed_tokens is not None:
+            return self.model.embed_tokens.weight.shape[1]
+        
+        # 方法2: 尝试从 LoRA wrapper 中获取
+        if hasattr(self.model, 'esm3_model'):
+            inner_model = self.model.esm3_model
+            if hasattr(inner_model, 'embed_tokens') and inner_model.embed_tokens is not None:
+                return inner_model.embed_tokens.weight.shape[1]
+        
+        # 方法3: 尝试从 base_model 获取
+        if hasattr(self.model, 'base_model'):
+            base = self.model.base_model
+            if hasattr(base, 'embed_tokens') and base.embed_tokens is not None:
+                return base.embed_tokens.weight.shape[1]
+        
+        # 方法4: 尝试通过一次前向传播获取
+        try:
+            device = next(self.model.parameters()).device
+            # 创建一个简单的测试输入
+            test_tokens = torch.tensor([[1, 2, 3]], device=device, dtype=torch.long)
+            with torch.no_grad():
+                output = self.model.forward(sequence_tokens=test_tokens)
+                if hasattr(output, 'embeddings') and output.embeddings is not None:
+                    return output.embeddings.shape[-1]
+        except Exception:
+            pass
+        
+        # 方法5: 根据 base_model_type 参数判断
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            if self.base_model_type == "esmc":
+                return 960
+            # ESM3 默认使用 2560，但可能是其他变体
+        
+        # 方法6: 根据模型类名判断
+        model_class_name = type(self.model).__name__
+        if "ESMC" in model_class_name:
+            return 960
+        
+        # 默认返回 ESM3-1.4B 的隐藏维度（最常用的模型）
+        return 1536
     
     def initialize_metrics(self, stage):
         # 使用自定义的SimpleRegressionMetrics，避免torchmetrics的依赖问题
@@ -358,7 +406,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                         import traceback
                         traceback.print_exc()
                         # 回退：创建零向量，维度是ESM3_HIDDEN_DIM
-                        features.append(torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype))
+                        features.append(torch.zeros(self.hidden_dim, device=device, dtype=model_dtype))
                 
                 stacked_features = torch.stack(features)  # [batch_size, ESM3_HIDDEN_DIM]
                 
@@ -366,7 +414,7 @@ class SaprotRegressionModel(SaprotBaseModel):
                 print(f"[WARNING] Token processing failed: {str(e)}, falling back to zero features")
                 import traceback
                 traceback.print_exc()
-                stacked_features = torch.zeros(batch_size, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(batch_size, self.hidden_dim, device=device, dtype=model_dtype)
         
         # 处理预编码的嵌入
         elif "embeddings" in inputs:
@@ -399,17 +447,17 @@ class SaprotRegressionModel(SaprotBaseModel):
                                 # [1, seq_len, hidden_dim] -> [hidden_dim]
                                 seq_feature = output.embeddings.squeeze(0).mean(dim=0)
                             else:
-                                seq_feature = torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
+                                seq_feature = torch.zeros(self.hidden_dim, device=device, dtype=model_dtype)
                     
                     features.append(seq_feature.to(dtype=model_dtype))
                 except Exception as e:
                     print(f"[WARNING] Sequence {i} encoding error: {str(e)}")
-                    features.append(torch.zeros(self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype))
+                    features.append(torch.zeros(self.hidden_dim, device=device, dtype=model_dtype))
             
             if features:
                 stacked_features = torch.stack(features)
             else:
-                stacked_features = torch.zeros(1, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
+                stacked_features = torch.zeros(1, self.hidden_dim, device=device, dtype=model_dtype)
 
         # 保留原有的ESM和ProtBERT逻辑作为兜底
         elif "inputs" in inputs:
@@ -447,7 +495,7 @@ class SaprotRegressionModel(SaprotBaseModel):
         
         else:
             # print(f"[回归模型调试] 输入中没有找到tokens、embeddings、sequences或inputs")
-            stacked_features = torch.zeros(1, self.ESM3_HIDDEN_DIM, device=device, dtype=model_dtype)
+            stacked_features = torch.zeros(1, self.hidden_dim, device=device, dtype=model_dtype)
         
         # Ensure stacked_features is on the correct device and dtype
         stacked_features = stacked_features.to(device=device, dtype=model_dtype)
@@ -560,16 +608,29 @@ class SaprotRegressionModel(SaprotBaseModel):
         # 根据调度器名称选择正确的类
         if lr_scheduler_name == "ConstantLRScheduler":
             lr_scheduler_cls = ConstantLRScheduler
+            # ConstantLRScheduler只接受 init_lr 参数，移除其他不支持的参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "CosineAnnealingLRScheduler":
             lr_scheduler_cls = CosineAnnealingLRScheduler
+            # CosineAnnealingLRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'cosine_steps', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "Esm2LRScheduler":
             lr_scheduler_cls = Esm2LRScheduler
+            # Esm2LRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'start_decay_after_n_steps', 
+                           'end_decay_after_n_steps', 'on_use', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
             # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
+            # 默认使用ConstantLRScheduler，同样过滤参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
         

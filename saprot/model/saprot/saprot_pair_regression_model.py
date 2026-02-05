@@ -165,35 +165,61 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 重新初始化优化器以包含回归头参数
         self.init_optimizers()
 
+    def _get_model_hidden_size(self):
+        """
+        动态检测模型的隐藏维度
+        支持 ESM3 不同大小的模型 (open: 2560, 1.4B: 1536) 和 ESMC (960)
+        """
+        # 方法1: 尝试从 embed_tokens 获取
+        if hasattr(self.model, 'embed_tokens') and self.model.embed_tokens is not None:
+            return self.model.embed_tokens.weight.shape[1]
+        
+        # 方法2: 尝试从 LoRA wrapper 中获取
+        if hasattr(self.model, 'esm3_model'):
+            inner_model = self.model.esm3_model
+            if hasattr(inner_model, 'embed_tokens') and inner_model.embed_tokens is not None:
+                return inner_model.embed_tokens.weight.shape[1]
+        
+        # 方法3: 尝试从 base_model 获取
+        if hasattr(self.model, 'base_model'):
+            base = self.model.base_model
+            if hasattr(base, 'embed_tokens') and base.embed_tokens is not None:
+                return base.embed_tokens.weight.shape[1]
+        
+        # 方法4: 尝试通过一次前向传播获取
+        try:
+            device = next(self.model.parameters()).device
+            # 创建一个简单的测试输入
+            test_tokens = torch.tensor([[1, 2, 3]], device=device, dtype=torch.long)
+            with torch.no_grad():
+                output = self.model.forward(sequence_tokens=test_tokens)
+                if hasattr(output, 'embeddings') and output.embeddings is not None:
+                    return output.embeddings.shape[-1]
+        except Exception:
+            pass
+        
+        # 方法5: 根据 base_model_type 参数判断
+        if hasattr(self, 'base_model_type') and self.base_model_type:
+            if self.base_model_type == "esmc":
+                return 960
+            # ESM3 默认使用 2560，但可能是其他变体
+        
+        # 方法6: 根据模型类名判断
+        model_class_name = type(self.model).__name__
+        if "ESMC" in model_class_name:
+            return 960
+        
+        # 默认返回 ESM3-open 的隐藏维度
+        return 2560
+
     def initialize_model(self):
         """初始化ESM3模型和回归头"""
         super().initialize_model()
         
-        # 优先使用显式传递的base_model_type参数
-        if hasattr(self, 'base_model_type') and self.base_model_type:
-            model_type = self.base_model_type.upper()  # 用于显示
-            if self.base_model_type == "esmc":
-                hidden_size = 960
-            else:  # esm3
-                hidden_size = 2560
-            # print(f"[DEBUG] Pair Regressor using explicit base_model_type: {self.base_model_type}, hidden_size: {hidden_size}")
-        else:
-            # 回退到自动检测
-            actual_model = self.model
-            if hasattr(self.model, 'base_model'):
-                actual_model = self.model.base_model
-            elif hasattr(self.model, 'esm3_model'):
-                actual_model = self.model.esm3_model
-            
-            model_type = type(actual_model).__name__
-            
-            if "ESMC" in model_type:
-                hidden_size = 960
-            elif hasattr(self.model, 'embed_tokens'):
-                hidden_size = self.model.embed_tokens.weight.shape[1]
-            else:
-                hidden_size = 2560
-            print(f"[DEBUG] Pair Regressor auto-detected model_type: {model_type}, hidden_size: {hidden_size}")
+        # 动态检测模型的隐藏维度
+        hidden_size = self._get_model_hidden_size()
+        model_type = type(self.model).__name__
+        # print(f"[DEBUG] Pair Regressor detected hidden_size: {hidden_size}, model_type: {model_type}")
         
         # 对于pair回归，我们需要两倍的hidden_size，因为要处理两个序列
         hidden_size = hidden_size * 2
@@ -362,22 +388,8 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         device = next(self.model.parameters()).device
         model_dtype = next(self.model.parameters()).dtype
         
-        # 检测模型类型并获取对应的隐藏维度
-        # 优先使用显式传递的base_model_type参数
-        if hasattr(self, 'base_model_type') and self.base_model_type:
-            if self.base_model_type == "esmc":
-                hidden_size = 960
-            else:  # esm3
-                hidden_size = 2560
-        elif hasattr(self.model, 'embed_tokens'):
-            hidden_size = self.model.embed_tokens.weight.shape[1]
-        else:
-            # 回退:尝试从模型类型名称检测
-            model_class_name = type(self.model).__name__
-            if "ESMC" in model_class_name:
-                hidden_size = 960
-            else:
-                hidden_size = 2560  # ESM3的标准隐藏维度
+        # 使用统一的方法检测模型隐藏维度
+        hidden_size = self._get_model_hidden_size()
         
         # 优先处理tokens - 使用ESM3获取真正的语义嵌入
         if "tokens" in inputs_1 and "tokens" in inputs_2:
@@ -738,21 +750,28 @@ class SaprotPairRegressionModel(SaprotBaseModel):
         # 根据调度器名称选择正确的类
         if lr_scheduler_name == "ConstantLRScheduler":
             lr_scheduler_cls = ConstantLRScheduler
-            # ConstantLRScheduler只接受特定参数
-            allowed_keys = {'last_epoch', 'verbose', 'init_lr'}
+            # ConstantLRScheduler只接受 init_lr 参数，移除其他不支持的参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
             tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "CosineAnnealingLRScheduler":
             lr_scheduler_cls = CosineAnnealingLRScheduler
+            # CosineAnnealingLRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'cosine_steps', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "Esm2LRScheduler":
             lr_scheduler_cls = Esm2LRScheduler
+            # Esm2LRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'start_decay_after_n_steps', 
+                           'end_decay_after_n_steps', 'on_use', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
             # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
-            # 过滤参数
-            allowed_keys = {'last_epoch', 'verbose', 'init_lr'}
+            # 默认使用ConstantLRScheduler，同样过滤参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
             tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)

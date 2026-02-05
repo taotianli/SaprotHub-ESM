@@ -826,16 +826,29 @@ class SaprotClassificationModel(SaprotBaseModel):
         # 根据调度器名称选择正确的类
         if lr_scheduler_name == "ConstantLRScheduler":
             lr_scheduler_cls = ConstantLRScheduler
+            # ConstantLRScheduler只接受 init_lr 参数，移除其他不支持的参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "CosineAnnealingLRScheduler":
             lr_scheduler_cls = CosineAnnealingLRScheduler
+            # CosineAnnealingLRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'cosine_steps', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif lr_scheduler_name == "Esm2LRScheduler":
             lr_scheduler_cls = Esm2LRScheduler
+            # Esm2LRScheduler 支持的参数
+            allowed_keys = {'init_lr', 'max_lr', 'final_lr', 'warmup_steps', 'start_decay_after_n_steps', 
+                           'end_decay_after_n_steps', 'on_use', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
         elif hasattr(torch.optim.lr_scheduler, lr_scheduler_name):
             # 如果是PyTorch内置的调度器
             lr_scheduler_cls = getattr(torch.optim.lr_scheduler, lr_scheduler_name)
         else:
             # print(f" 未知的学习率调度器: {lr_scheduler_name}, 使用ConstantLRScheduler")
             lr_scheduler_cls = ConstantLRScheduler
+            # 默认使用ConstantLRScheduler，同样过滤参数
+            allowed_keys = {'init_lr', 'last_epoch', 'verbose'}
+            tmp_kwargs = {k: v for k, v in tmp_kwargs.items() if k in allowed_keys}
             
         self.lr_scheduler = lr_scheduler_cls(self.optimizer, **tmp_kwargs)
         
